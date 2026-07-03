@@ -375,7 +375,8 @@ These produce plausible wrong answers with no crash and no obvious trace. Two ha
 - LC 862: monotonic-deque loop started at i=0 while reading `prefixSum[i-1]` → indexed `[-1]`.
 - Custom `vector<T>`: `size_`/`capacity_` with no default member initializers → UB on first use.
 - `unordered_map` min-accumulation corrupted by `operator[]` **default-inserting 0** on a missing key — the phantom 0 wins every `min()`. (Direct LC manifestation of Part 1 §Standard-Library `map::operator[]` trap.)
-- **Rule to lock:** *only the single truly-free state gets 0; everything else starts unreachable.* And *never bare-read a map inside a min/max fold.*
+- LC 3977: `distances[source][power]` never initialized to 0 in a 2D `(node,power)` Dijkstra table. Combined with a `>=` staleness skip, the source skipped itself → whole search returned `{-1,-1}`. Base-case/init wearing a Dijkstra costume.
+- **Rule to lock:** *only the single truly-free state gets 0; everything else starts unreachable.* And *never bare-read a map inside a min/max fold.* And *always initialize the source cell of a Dijkstra dist table (2D too).*
 
 ### D — Off-by-one / index-domain translation (6 logged)
 - LC 2008: after binary search returned 0-based rides index j, used `dp[j]` where the 1-indexed dp needed `dp[j+1]`. Cleaner idiom: `int pos = it - rides.begin()` used directly as dp index, `dp[0]=0` absorbing the no-predecessor case.
@@ -391,6 +392,7 @@ These produce plausible wrong answers with no crash and no obvious trace. Two ha
 - LC 1334: relaxation skip used strict `<` (still pushes equal-cost duplicates); `<=` keeps the queue tight.
 - LC 2402: booked-rooms heap ordered by end time only — simultaneous frees need a **secondary tie-break on room number** (rule: lowest-numbered available room).
 - LC 2334: read `st.back()` as the left boundary **before** popping `curr` — the boundary read was `curr` itself. Pop first, then peek.
+- LC 3977: staleness skip written as `if (t >= dist[cell]) continue;` → evicts the **live** entry, not just stale duplicates. A popped entry carries the exact value written into its cell at push time, so equality means "owner," not "stale." Must be strict `>` (or equivalently `!=`, since a cell only ever decreases so stale ⇒ strictly greater). `>=` collapsed the whole search to `{-1,-1}` by skipping the source.
 - **Pattern:** the invariant is designed correctly; the mechanical realization (which end, which direction, which order) flips. Same genus as B, applied to operations instead of formulas.
 
 ### F — Missing operation / dropped constraint (4 logged)
@@ -447,6 +449,7 @@ These produce plausible wrong answers with no crash and no obvious trace. Two ha
 | LC 927 | (insight correct) | three-pointer simultaneous walk | multi-pointer lockstep implementation, not identification | implementation drill, see §2.3 |
 | LC 2818 | stalled on "map element to max score" | contribution counting (zone of dominance, prime-score key) + greedy spend — **two independent stages** | didn't see the problem *factors* into two known moves | when a subarray's outcome is decided by one "best" element under a ranking → per-element win-count = contribution counting; then look for a second, separate stage |
 | LC 3928 | "Dijkstra twice from each node?" | single Dijkstra on a layered graph (2n nodes: empty/carrying) | state augmentation reframe (layer = carried state) | per-node mode/state → add a graph layer, not a second pass |
+| LC 3977 | single dist-per-node Dijkstra | `(node, power)` state — power is a real dimension | Pareto non-dominance: a worse-time arrival with MORE power isn't dominated (power can gate later edges), so neither coordinate alone dominates | Dijkstra with a carried resource → ask "can a worse-primary arrival with better-resource ever be needed later?" If yes, resource is a state dimension (or a `settled[node]=best-resource` frontier prune if the resource range is large) |
 | Teleport-grid | coded the fan-out directly | virtual nodes per price level | complexity not multiplied out before coding | write the edge-count formula BEFORE implementing any fan-out construction |
 | LC 813 vs 1043 | conflated the two k's | 813: k caps **group count**; 1043: k caps **group length** | imprecise structural read of the constraint | when k appears, say out loud what k bounds before designing state |
 | Recurring | prose instinct → no state | the prose WAS the state definition | NL→state conversion gap ("all different possible total rewards" = the dp axis) | procedure: enumerate the choices at position i first; the state is whatever those choices need to know |
@@ -465,8 +468,12 @@ An element's full span-as-minimum is known exactly when it's **popped**. Never r
 **Contribution counting — strict/non-strict asymmetry:**
 Count per element: `(i − left[i]) × (right[i] − i)`. With duplicates, symmetric strictness double-counts: use **strictly** on one side, **or-equal** on the other (e.g. previous strictly-smaller, next smaller-or-equal; or the problem's stated tie-break, as in 2818's index rule). Max-over-spans (histogram) doesn't care; sum-over-counts does. Shared engine: *element + maximal zone of dominance*; the knobs are (a) max vs sum, (b) tie-break strictness.
 
-**Dijkstra checklist (assembled from 3 sessions of bugs):**
-`priority_queue<pair<long long,int>, vector<...>, greater<>>` with `{dist, node}` — greater<> on that pair order gives the min-heap free (no hand-written comparator to invert). Pop → `if (d > dist[u]) continue;` (stale skip). Push only on strict improvement `nd < dist[v]`. `long long` distances. `vector<vector<>>` adjacency for contiguous node ids. State augmentation = extra dp dimension or graph layer, never a second pass.
+**Dijkstra checklist (assembled from 4 sessions of bugs):**
+`priority_queue<pair<long long,int>, vector<...>, greater<>>` with `{dist, node}` — greater<> on that pair order gives the min-heap free (no hand-written comparator to invert). Pop → `if (d > dist[u]) continue;` (stale skip — **strict `>`, never `>=`**; the popped entry equals its cell by construction, so `>=` evicts the live owner). Push only on strict improvement `nd < dist[v]`. `long long` distances. `vector<vector<>>` adjacency for contiguous node ids. **Initialize the source cell** (`dist[source]=0`, and `dist[source][fullResource]=0` for augmented state) before the loop.
+- **State sizing (decide FIRST):** single dist-per-node suffices only if no carried resource can gate future edges. If a worse-primary-key arrival with a better secondary resource can be needed later (Pareto non-dominance), the resource is a **state dimension** `(node, resource)` — table if the resource range is small, or a `settled[node] = best-resource-finalized` frontier prune (pop in primary-then-resource order, skip `resource <= settled[node]`) if the range is large. Never a second pass.
+- **Early return at target** is valid when the PQ order makes the first target-pop already optimal on all keys (e.g. `{time, -power}` → first pop is min-time, max-power).
+
+**Process discipline — patch vs refactor:** when a design has the right *state, comparator, and relaxation*, diagnose whether failures are 1-line bugs (uninit cell, wrong inequality) BEFORE rewriting the approach. LC 3977 was two 1-line patches from correct; a full `settled[]`/Pareto refactor was explored unnecessarily. Cost: real time. Tell: if the shape is sound and only edge cases fail, you have bugs, not the wrong algorithm.
 
 **`lower_bound` / `upper_bound` conventions:**
 lower → `comp(element, value)`; upper → `comp(value, element)`; "the thing tested for smallness comes first." Returns: lower = first ≥, upper = first >. For struct fields, the heterogeneous comparator's parameter order must match the function, not your intuition.
@@ -525,6 +532,7 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 - **LC 673 / 813 / 494 / 1043** (07-01) — DP state-dimension drill; 813-vs-1043 k-semantics conflation [§2.2]. (Also correctly caught the "index vs accumulate" heuristic's knapsack counterexample.)
 - **LC 2402** (07-03) — heap comparator missing room-number tie-break for equal end times [E].
 - **LC 2334** (07-03) — span i−st[j]+1 vs previous-entry boundary [B/D]; full-stack rescan O(n²) [I]; float threshold precision → integer cross-multiply [G]; read st.back() before popping curr [E].
+- **LC 3977** (07-03) — Minimum Time to Reach Target With Limited Power (state-augmented Dijkstra). Uninitialized `distances[source][power]=0` [C]; `>=` staleness skip evicting the live equal-time entry (must be strict `>` or `!=`) [E]; initially under-dimensioned state (single dist/node) before recognizing power must be a `(node,power)` dimension [§2.2, state-sizing]. Process note: approach was sound throughout — needed two 1-line patches, not the `settled[]`/Pareto refactor that was explored. See §2.3 Dijkstra checklist additions.
 
 **Custom-implementation cluster (vector / shared_ptr from scratch, May–June):**
 `Element` vs `T`, `forward<Element>` [A]; `size_`/`capacity_` uninitialized [C]; `needExpand` / `capacity_-1` unsigned underflow at capacity 0 [D/G — multi-session, systematic]; missing const `operator[]`; missing deallocation in `reserve`/destructor; no downsize guard in `reserve` → overflow; `deallocate(nullptr,…)` from ctor path; dead try-catch around noexcept dtor; shared_ptr: control block deleted while holding its own mutex (UB); refcount race between pointer copy and increment → `atomic<size_t>`.
@@ -542,4 +550,4 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 
 ---
 
-*Last updated: 2026-07-03 · Sessions mined: ~25 (May 18 – Jul 3) · Logged execution bugs: ~52 · Logged identification events: 14*
+*Last updated: 2026-07-03 (LC 3977 appended) · Sessions mined: ~25 (May 18 – Jul 3) · Logged execution bugs: ~54 · Logged identification events: 15*
