@@ -462,6 +462,12 @@ These produce plausible wrong answers with no crash and no obvious trace. Two ha
 
 ## 2.3 Idioms & Checklists to Drill
 
+**Difference array — O(1) range-update + point-query (learned 2026-07-03, LC 2528):**
+Turns "add `v` to every index in `[L,R]`" into two O(1) edits: `diff[L] += v; diff[R+1] -= v;`. A running prefix sum over `diff` (left-to-right) reconstructs each position's live total — each interval's `+v` turns ON at `L`, OFF at `R+1`, so at position `i` the running sum = sum of all `v` whose interval covers `i`. Range-update + point-query, both O(1) amortized, one pass. Avoids the O(n·r) rescan (category I) when many overlapping range-adds accumulate during a sweep. Two traps: size `diff` as `n+1` so `diff[R+1]` at `R=n-1` is in-bounds (C/D off-by-one); `long long` throughout when values accumulate (G). Canonical use: feasibility checks in binary-search-on-answer where each forced action adds power/coverage over a forward range (LC 2528, 1109, 370, 1094).
+
+**Binary-search-on-answer verification ritual (reinforced 2026-07-03):**
+Before coding BSoA, state the monotonicity sentence out loud: "if target `x` is feasible, every `x' < x` is feasible (same solution already clears the lower bar); if `x` infeasible, `x+1` also infeasible (needs ≥ as many resources)." That one argument is the license. Then: bounds (lo = current worst, hi = worst + budget), and an O(n) greedy `feasible(x)`. The check is where the bugs live, not the search.
+
 **Monotonic stack — pop-time evaluation (LC 84 / 907 / 1856 / 2334 family):**
 An element's full span-as-minimum is known exactly when it's **popped**. Never rescan the live stack. Left boundary = element *below* it after popping (exclusive); right boundary = the incoming index (exclusive); span = `right - left - 1`. Append a sentinel (e.g. −1 / 0) to flush the stack at the end.
 
@@ -533,6 +539,7 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 - **LC 2402** (07-03) — heap comparator missing room-number tie-break for equal end times [E].
 - **LC 2334** (07-03) — span i−st[j]+1 vs previous-entry boundary [B/D]; full-stack rescan O(n²) [I]; float threshold precision → integer cross-multiply [G]; read st.back() before popping curr [E].
 - **LC 3977** (07-03) — Minimum Time to Reach Target With Limited Power (state-augmented Dijkstra). Uninitialized `distances[source][power]=0` [C]; `>=` staleness skip evicting the live equal-time entry (must be strict `>` or `!=`) [E]; initially under-dimensioned state (single dist/node) before recognizing power must be a `(node,power)` dimension [§2.2, state-sizing]. Process note: approach was sound throughout — needed two 1-line patches, not the `settled[]`/Pareto refactor that was explored. See §2.3 Dijkstra checklist additions.
+- **LC 2528** (07-03) — Maximize the Minimum Powered City. BSoA correctly self-identified (monotonic feasibility). **Technique learned:** difference array for O(1) range-update during the greedy `feasible(x)` sweep — was the missing piece (didn't know it). Greedy placement = push forced stations as far right as still covers the deficient city (`[i, i+r]`), maximizing forward reach. See §2.3 difference-array + BSoA-ritual idioms. No bug logged; new tool acquired.
 
 **Custom-implementation cluster (vector / shared_ptr from scratch, May–June):**
 `Element` vs `T`, `forward<Element>` [A]; `size_`/`capacity_` uninitialized [C]; `needExpand` / `capacity_-1` unsigned underflow at capacity 0 [D/G — multi-session, systematic]; missing const `operator[]`; missing deallocation in `reserve`/destructor; no downsize guard in `reserve` → overflow; `deallocate(nullptr,…)` from ctor path; dead try-catch around noexcept dtor; shared_ptr: control block deleted while holding its own mutex (UB); refcount race between pointer copy and increment → `atomic<size_t>`.
@@ -550,4 +557,4 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 
 ---
 
-*Last updated: 2026-07-03 (LC 3977 appended) · Sessions mined: ~25 (May 18 – Jul 3) · Logged execution bugs: ~54 · Logged identification events: 15*
+*Last updated: 2026-07-03 (LC 3977, 2528 appended) · Sessions mined: ~25 (May 18 – Jul 3) · Logged execution bugs: ~54 · Logged identification events: 15 · Techniques logged: difference array, BSoA ritual*
