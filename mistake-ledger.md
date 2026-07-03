@@ -319,6 +319,31 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 # Part 2 — LeetCode
 
+## 2.WEAK — Weak Areas & Study Priority (consolidated 2026-07-03)
+
+Ordered by ROI for the Aug 2026 application cycle. ⚠️ = self-identified; ◆ = surfaced from ledger evidence.
+
+**Paradigm gaps (highest ROI first):**
+1. ⚠️◆ **Greedy category recognition** — executing greedy is fine; recognizing *which* of the 13 categories and proving correctness fast is the gap. Weakest sub-type: regret/heap greedy (LC 871 family). Keep forgetting the taxonomy. Broadest gap, appears everywhere.
+2. ⚠️◆ **Bitmask DP (submask/assignment flavor)** — stalled on LC 1723 (Jun) and LC 1655 (Jul), same "what do the bits index" stall. Fix in progress. Drill set scoped: **1655 → 698 → 2305** (same submask move ×3). Distinguish single-bit-transition (2^m·m) from whole-submask-transition (3^m, needs `(sub-1)&mask` loop).
+3. ◆ **Fenwick / segment tree + coordinate compression** (one bundle) — largely untouched; unlock the same P90 problems. LC 2839 deferred on this; LC 327 (Count of Range Sum) KIV'd for lack of BIT/merge-sort-counting.
+4. ⚠️ **Tries** — untouched, narrower, faster to learn once.
+
+**Cross-cutting skills (not paradigms, but recurring point-losers):**
+5. ◆ **Axis-swap reframe** — the dominant *identification* failure (§2.2): subarrays→elements, values→indices (LC 2555, 2818, 828). Stalls when the problem needs flipping what you iterate over.
+6. ◆ **Recurrence transcription** — category B, highest-frequency bug class (7 logged, 2 survived review). Correct math, wrong code. Countermeasure: hand-trace one 4-elem example before running.
+7. ◆ **State-dimension sizing** — when to add a dimension (LC 3977 node vs (node,power); 813-vs-1043 what k bounds). Distinct from knowing the paradigm.
+8. ◆ **Reconstruction / traceback** — DPs asking for the actual answer not its value (LC 1723 parent array). General weak spot.
+9. ◆ **Type-width discipline** — category G, recurring (LC 2528 today). Constraint-glance pre-pass in §2.3.
+10. ◆ **Prefix-sum ↔ subarray-sum link + boundary (n+1) indexing** — needs prompting to see; resisted fencepost convention repeatedly (Jun 26/28).
+
+**Explicitly DEPRIORITIZED (know they exist, don't drill — low/zero ROI for HFT):**
+digit DP, convex-hull-trick / Li Chao, suffix automata / heavy string algos, most interval DP.
+
+**Strengths (for calibration — these were gaps, now solid):** monotonic-stack contribution counting (Jun), Kadane recognition, binary-search-on-answer, exchange-argument skeleton, Dijkstra habits (post-3977).
+
+---
+
 ## 2.0 How to read this part
 
 - **§2.1** is the system of record for *execution* bugs: categories with running counts and every logged example. New bug → find its category → increment count → add the one-liner.
@@ -565,7 +590,7 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 - **LC 2334** (07-03) — span i−st[j]+1 vs previous-entry boundary [B/D]; full-stack rescan O(n²) [I]; float threshold precision → integer cross-multiply [G]; read st.back() before popping curr [E].
 - **LC 3977** (07-03) — Minimum Time to Reach Target With Limited Power (state-augmented Dijkstra). Uninitialized `distances[source][power]=0` [C]; `>=` staleness skip evicting the live equal-time entry (must be strict `>` or `!=`) [E]; initially under-dimensioned state (single dist/node) before recognizing power must be a `(node,power)` dimension [§2.2, state-sizing]. Process note: approach was sound throughout — needed two 1-line patches, not the `settled[]`/Pareto refactor that was explored. See §2.3 Dijkstra checklist additions.
 - **LC 2528** (07-03) — Maximize the Minimum Powered City. BSoA correctly self-identified (monotonic feasibility). **Technique learned:** difference array for O(1) range-update during the greedy `feasible(x)` sweep — was the missing piece (didn't know it). Greedy placement = push forced stations as far right as still covers the deficient city, covering `[i, i+2r]`; consume at `leftBound`, cancel at `i+r+1` (window-relative matched pair). **Bugs (Ethan's):** initial consume-index alignment wrong before correcting to `leftBound` [E, draw-the-array countermeasure]; `vector<int> adjustments` truncating long long deltas [G]; `int minimumPower` param truncating long long `mid` at the call boundary [G — narrowing-across-function-boundary]. Type bugs fail on large inputs (k≤1e9, power≤1e10). Countermeasures → §2.3 type-width pass + draw-the-array pass.
-- **LC 1655** (07-03, PAUSED — resume tomorrow) — Distribute Repeating Integers. ⚠️ bitmask-DP-over-target-set, Ethan's self-identified weak area. Correctly ruled out greedy (non-local constraint). Reached the state-design question (mask = customers, iterate piles) with a nudge — same stall as LC 1723. Not yet coded: the `dp[mask|sub]` transition, submask enumeration loop, and `need[submask]` precompute. Full paradigm writeup in §2.3 "Bitmask DP over a small target set." Resume by writing the transition + submask loop.
+- **LC 1655** (07-03, PAUSED — resume tomorrow) — Distribute Repeating Integers. ⚠️ bitmask-DP-over-target-set, Ethan's self-identified weak area. Correctly ruled out greedy (non-local constraint). Reached the state-design question (mask = customers, iterate piles) with a nudge — same stall as LC 1723. Not yet coded: the `dp[mask|sub]` transition, submask enumeration loop, and `need[submask]` precompute. Full paradigm writeup in §2.3 "Bitmask DP over a small target set." **Resume plan: drill set 1655 → 698 (Partition to K Equal Sum Subsets) → 2305 (Fair Distribution of Cookies) — same submask move ×3 until it's automatic. Write the transition + submask loop cold each time.** Recurrence in plain English (from 07-03 session): dp[j][mask] = "using first j piles, can group `mask` be fully served?" = idle (dp[j-1][mask]) OR exists sub⊆mask with need[sub]≤count AND dp[j-1][mask^sub]. `sub` = chunk this pile serves; `mask^sub` = chunk earlier piles served. Cost 3^m via `for(sub=mask;sub;sub=(sub-1)&mask)`.
 
 **Custom-implementation cluster (vector / shared_ptr from scratch, May–June):**
 `Element` vs `T`, `forward<Element>` [A]; `size_`/`capacity_` uninitialized [C]; `needExpand` / `capacity_-1` unsigned underflow at capacity 0 [D/G — multi-session, systematic]; missing const `operator[]`; missing deallocation in `reserve`/destructor; no downsize guard in `reserve` → overflow; `deallocate(nullptr,…)` from ctor path; dead try-catch around noexcept dtor; shared_ptr: control block deleted while holding its own mutex (UB); refcount race between pointer copy and increment → `atomic<size_t>`.
@@ -583,4 +608,4 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 
 ---
 
-*Last updated: 2026-07-03 · bitmask-DP-over-target-set flagged as weak area (LC 1655 paused, resume tomorrow) · Techniques logged: difference array, BSoA ritual, bitmask-over-target-set*
+*Last updated: 2026-07-03 · added consolidated Weak Areas & Study Priority section (§2.WEAK); bitmask drill set 1655→698→2305 scoped for tomorrow*
