@@ -324,10 +324,11 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 Ordered by ROI for the Aug 2026 application cycle. ⚠️ = self-identified; ◆ = surfaced from ledger evidence.
 
 **Paradigm gaps (highest ROI first):**
-1. ⚠️◆ **Greedy category recognition** — executing greedy is fine; recognizing *which* of the 13 categories and proving correctness fast is the gap. Weakest sub-type: regret/heap greedy (LC 871 family). Keep forgetting the taxonomy. Broadest gap, appears everywhere.
+1. ⚠️◆ **Greedy category recognition** — executing greedy is fine; recognizing *which* of the 13 categories and proving correctness fast is the gap. Weakest sub-type: regret/heap greedy (LC 871 family) — **confirmed 07-06: LC 630 revisit stalled despite 871 install; retention, not just recognition**. Keep forgetting the taxonomy. Broadest gap, appears everywhere.
 2. ⚠️◆ **Bitmask DP (submask/assignment flavor)** — stalled on LC 1723 (Jun) and LC 1655 (Jul), same "what do the bits index" stall. Fix in progress. Drill set scoped: **1655 → 698 → 2305** (same submask move ×3). Distinguish single-bit-transition (2^m·m) from whole-submask-transition (3^m, needs `(sub-1)&mask` loop).
-3. ◆ **Fenwick / segment tree + coordinate compression** (one bundle) — largely untouched; unlock the same P90 problems. LC 2839 deferred on this; LC 327 (Count of Range Sum) KIV'd for lack of BIT/merge-sort-counting.
-4. ⚠️ **Tries** — untouched, narrower, faster to learn once.
+3. ◆ **Fenwick / segment tree + coordinate compression** (one bundle) — largely untouched; unlock the same P90 problems. LC 2839 deferred on this; LC 327 (Count of Range Sum) KIV'd for lack of BIT/merge-sort-counting; **LC 2407 (07-06) KIV'd at the same wall** — identification complete, implementation blocked on the structure. Near-perfect first drill problem when this is picked up.
+4. ⚠️ **Tries** — untouched, narrower, faster to learn once. LC 421 → 1707 queued as the drill pair (07-06).
+4b. ◆ **Permutation-counting DP** — new, surfaced 07-06 (LC 1866): insertion-by-rank + rank-bijection unknown. Small family, cheap to close: drill 629 → 920 → 1359. Rarer in HFT OAs than #1–3 — take for momentum, not priority.
 
 **Cross-cutting skills (not paradigms, but recurring point-losers):**
 5. ◆ **Axis-swap reframe** — the dominant *identification* failure (§2.2): subarrays→elements, values→indices (LC 2555, 2818, 828). Stalls when the problem needs flipping what you iterate over.
@@ -485,6 +486,9 @@ These produce plausible wrong answers with no crash and no obvious trace. Two ha
 | Recurring | element-indexed prefix DP | boundary-indexed (n+1) convention | resistance to fencepost indexing | prefix DPs index **boundaries**, not elements; size n+1, answer at dp[n] |
 | **Bitmask DP over a small target set** ⚠️ FLAGGED WEAK — REVISIT | stalls on "what does the mask index" | mask = the ≤~20 target set (skills / customers / nodes); iterate the *resources* one at a time, each flips on a submask | state-design stall: recognizing bitmask is needed but not what the bits ARE | when a target set has size ≤ ~20 and you assign resources to cover/satisfy it → `dp[mask]` over the TARGET set; process resources one at a time; transition ORs in each resource's reachable submask. Traceback (`parent[]`) only if the answer needs *which* resources, not just feasibility/count |
 
+| LC 630 (07-06 **revisit** — first seen 06-16; 871 regret-greedy self-identified 07-01) | "is there even a greedy?" guess, then stalled on the mechanism | regret/heap greedy: deadline-sort (exchange arg) + take-if-fits + evict current longest via max-heap | **retention/transfer failure**: 871's mechanism was installed but never generalized into a trigger; also twice asserted **time** (not **count**) as the invariant quantity in the correctness proof — the multi-swap is rejected because it costs count, not because it worsens time (it strictly improves time) | sequential budget + commitments you'd sometimes want to un-take + "worst held item" is one comparable number → heap regret greedy. Proof sentence to say cold: "dropping courses converts count→slack; slack converts back at ≤1-for-1 (the swap op proves it), so never profits" |
+| LC 1866 | no independent state; recurrence supplied | permutation-counting DP: dp[i][j] via inserting the new **shortest** stick (rank order), leftmost slot = visible, other i−1 slots = hidden | new subfamily: didn't know insertion-by-rank or the rank-relabeling bijection that licenses dropping identities from the state (comparison-only property ⇒ ranks lossless) | counting arrangements with a comparison-defined property (visible/records/inversions) → insert by rank, count insertion positions by effect. Drill set: **629 → 920 → 1359** |
+
 **Solid recognitions (for contrast, keep calibrated):** Kadane (LC 2606) instant; BSoA (LC 2616, and LC 2439 on second look) reliable; knapsack connection (LC 871) self-identified; exchange-argument skeleton installed; LC 2551/1899 solved fast but with prior exposure — freshness there unverified.
 
 **Deferred topics:** LC 2839 (coordinate-compressed segment trees) — revisit after studying segment trees / BIT.
@@ -544,6 +548,14 @@ lower → `comp(element, value)`; upper → `comp(value, element)`; "the thing t
 
 **Grids in DP:** flat `vector<int>` or global C array with manual indexing over `vector<vector<int>>` when bounds are known (cache locality; from the heap/stack session).
 
+**Permutation-counting DP (installed 2026-07-06, LC 1866):** trigger = counting arrangements where the property is defined purely by comparisons. Move: relabel to ranks (bijection preserves all comparisons ⇒ every i-set has identical counts ⇒ identities drop from state), then build by inserting elements in rank order and count insertion positions by their effect. 1866 recurrence: `dp[i][j] = dp[i-1][j-1] + (i-1)*dp[i-1][j]` (leftmost slot = visible; widen before `*`, base dp[0][0]=1 only). The compression DIES the moment magnitudes matter (sums/thresholds on values) — 2-second scan for any non-comparison use of values.
+
+**DP state-derivation procedure (named 2026-07-06 — countermeasure for the §2.2 state-design stalls):**
+1. **Parameterize the question** — turn the problem's constants into variables; "exactly/at most k of P" puts P's count in the state.
+2. **Sufficiency test** — what must the future know about a partial solution? List the leaks.
+3. **Eliminate before enlarging** — for each leak try: reorder processing (position→rank/sorted/reverse), canonicalize (relabel to ranks), condition on a special element (min/max/first/last). Only a leak that survives all three becomes a dimension. (Reorder killed the ordering dimension in 630 and the running-max dimension in 1866; 3977's power leak was intrinsic → dimension. Dividing question: *does the future need this intrinsically, or is it an artifact of my processing order?*)
+4. **Size it** against constraints; if it doesn't fit, return to 3 with more force.
+
 ## 2.4 Per-Problem Log (chronological, append-only)
 
 Format: `LC # (date) — bugs [category letters] / identification notes`
@@ -592,6 +604,15 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 - **LC 2528** (07-03) — Maximize the Minimum Powered City. BSoA correctly self-identified (monotonic feasibility). **Technique learned:** difference array for O(1) range-update during the greedy `feasible(x)` sweep — was the missing piece (didn't know it). Greedy placement = push forced stations as far right as still covers the deficient city, covering `[i, i+2r]`; consume at `leftBound`, cancel at `i+r+1` (window-relative matched pair). **Bugs (Ethan's):** initial consume-index alignment wrong before correcting to `leftBound` [E, draw-the-array countermeasure]; `vector<int> adjustments` truncating long long deltas [G]; `int minimumPower` param truncating long long `mid` at the call boundary [G — narrowing-across-function-boundary]. Type bugs fail on large inputs (k≤1e9, power≤1e10). Countermeasures → §2.3 type-width pass + draw-the-array pass.
 - **LC 1655** (07-03, PAUSED — resume tomorrow) — Distribute Repeating Integers. ⚠️ bitmask-DP-over-target-set, Ethan's self-identified weak area. Correctly ruled out greedy (non-local constraint). Reached the state-design question (mask = customers, iterate piles) with a nudge — same stall as LC 1723. Not yet coded: the `dp[mask|sub]` transition, submask enumeration loop, and `need[submask]` precompute. Full paradigm writeup in §2.3 "Bitmask DP over a small target set." **Resume plan: drill set 1655 → 698 (Partition to K Equal Sum Subsets) → 2305 (Fair Distribution of Cookies) — same submask move ×3 until it's automatic. Write the transition + submask loop cold each time.** Recurrence in plain English (from 07-03 session): dp[j][mask] = "using first j piles, can group `mask` be fully served?" = idle (dp[j-1][mask]) OR exists sub⊆mask with need[sub]≤count AND dp[j-1][mask^sub]. `sub` = chunk this pile serves; `mask^sub` = chunk earlier piles served. Cost 3^m via `for(sub=mask;sub;sub=(sub-1)&mask)`.
 
+- **LC 2136 / 1642 / 2454** (07-06) — assigned, reported previously solved (2136/2454 not in log; no session data — freshness unverified).
+- **LC 630** (07-06, **revisit** — first seen 06-16 paradigm session) — Course Schedule III. Identification stall ("don't know if there's a greedy") despite prior exposure AND 871's regret-greedy self-identification on 07-01 → retention/transfer failure, logged §2.2. Exchange argument for deadline-sort reached with prompting; correctness proof twice anchored on the wrong invariant quantity (**time instead of count** — the {3,3}+dur-5 counterexample kills the time framing). Full race-argument proof walked. Solved + submitted on LC after walkthrough. Interview sentence locked: slack↔count converts at ≤1-for-1.
+- **LC 1937** (07-06, revisit) — solved independently on LC, no bugs reported.
+- **LC 2407** (07-06) — LIS with adjacent difference ≤ k. Identification GOOD: correctly diagnosed why the tails-array O(n log n) trick dies (min-tail-per-length no longer dominant — extension window [v−k, v−1] over VALUES means a larger admissible tail can exist while the min is below the window) and reached value-indexed dp + range-max-query reformulation. Implementation (segment tree over value domain, point update / range max) **KIV'd — needs a return date**; feeds §2.WEAK #3.
+- **LC 1986** (07-06) — assigned, unattempted (excluded by request — bitmask; overlaps the 1655→698→2305 drill).
+- **LC 421 / 1707** (07-06) — assigned, unattempted (excluded by request — trie family; 1707 = 421 + offline sorted queries). Feeds §2.WEAK #4.
+- **LC 1866** (07-06) — Number of Sticks with K Visible. Permutation-counting DP — new subfamily, walked (see §2.2 row + §2.3 block). Strong probing on WHY counts suffice (rank-bijection) and on state derivation — the questions were right, the toolkit was missing. Drill set queued: 629 → 920 → 1359.
+- **LC 1838** (07-06) — Frequency of the Most Frequent Element. Solved independently on LC in 15 min (on-target for tier), no bugs reported.
+
 **Custom-implementation cluster (vector / shared_ptr from scratch, May–June):**
 `Element` vs `T`, `forward<Element>` [A]; `size_`/`capacity_` uninitialized [C]; `needExpand` / `capacity_-1` unsigned underflow at capacity 0 [D/G — multi-session, systematic]; missing const `operator[]`; missing deallocation in `reserve`/destructor; no downsize guard in `reserve` → overflow; `deallocate(nullptr,…)` from ctor path; dead try-catch around noexcept dtor; shared_ptr: control block deleted while holding its own mutex (UB); refcount race between pointer copy and increment → `atomic<size_t>`.
 
@@ -608,4 +629,4 @@ Format: `LC # (date) — bugs [category letters] / identification notes`
 
 ---
 
-*Last updated: 2026-07-03 · added consolidated Weak Areas & Study Priority section (§2.WEAK); bitmask drill set 1655→698→2305 scoped for tomorrow*
+*Last updated: 2026-07-06 · session: 630 revisit (retention failure on regret greedy + time-vs-count proof error ×2), 2407 (segment tree KIV), 1866 (permutation-counting subfamily installed + state-derivation procedure in §2.3), 1937/1838 clean. New drill sets: perm-counting 629→920→1359; tries 421→1707. Open/unattempted: 1986, 421, 1707, 2407-impl.*
