@@ -39,7 +39,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 | 4 | `optional` `*` vs `.value()` | `*opt` empty = UB; `.value()` throws | ⭐ high-freq HFT |
 | 5 | ADL `swap` idiom | `using std::swap; swap(a,b);` unqualified or custom swap never wins | ⭐ high-freq HFT |
 | 6 | SSO defeats move | Short-string move costs same as copy | ⭐ high-freq HFT |
-| 7 | Lifetime extension scope | Stops at first function-return-by-reference → dangles | ⭐ high-freq HFT |
+| 7 | Lifetime extension — full two-part rule | (a) ANY reference directly bound to a temporary extends it (`const&`, `T&&`, `auto&&` all extend — "only const&" is folklore; non-const lvalue refs just can't *bind*); (b) extension stops at first function-return-by-reference. Half (a) answered confidently-wrong 2026-07-10 | ⭐ high-freq HFT + 🔁 misconception |
 | 8 | Cache latency + branch-mispredict numbers | L1~4/L2~12/L3~40/RAM~200 cyc; mispredict ~15–20 cyc; ~50 L1 hits per RAM access | ⭐ memorize cold — **3rd consecutive fail 2026-07-10; pure recall item, sticky-note it** |
 | 9 | `map::operator[]` silently inserts | Bare read mutates the map; no `operator[]` on const map — has also caused a real LC bug (min-accumulation corrupted by default-insert, see §2.1-C) | ⭐ high-freq HFT + 🔁 |
 | 10 | `string_view` lifetime | View of a temporary dangles at the semicolon | ⭐ high-freq HFT |
@@ -81,6 +81,11 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 ### `std::forward` vs `std::move` with forwarding reference — (2026-06-28, correct)
 - Given `wrapper(T&& arg)` called with an lvalue: `T` deduces to `int&`; `std::forward<T>(arg)` yields `int&`, `std::move(arg)` yields `int&&`. ✅ (logged as a *correct* answer for reference.)
 
+### Rvalue references DO extend temporary lifetime — 2026-07-10 (confident-wrong)
+- **Wrong:** Said `auto&& u = makeBig();` and `T&& m = makeBig();` give no extension → destroyed after the line.
+- **Correct:** ANY reference **directly bound** to a temporary extends it to the reference's scope. The "only `const&`" folklore exists because non-const *lvalue* refs can't bind to temporaries at all — among lvalue refs only const ones get the chance. `T&&`/`auto&&` bind fine and extend identically. Interlocks with item #7: survives any reference kind, dies through function-return-by-reference.
+- **Range-for corollary:** `for (x : make().member())` dangled pre-C++23 (extension covered only the directly-bound member, owner temporary died); **C++23 P2718** extends ALL temporaries in the range-initializer for the loop.
+
 ## Theme: Initialization & Lifetime
 
 ### `new S` vs `new S()` — (2026-06-28) — ✅ RESOLVED: answered correctly 2026-07-10
@@ -121,6 +126,9 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 ### Dangling reference / `string_view` — (2026-06-28, correct)
 - Returning `const std::string&` to a local dangles once the function returns; returning `std::string_view` of a local has the **same** problem. ✅
 
+### `const` vs `constexpr` vs `constinit` — SIOF completion — 2026-07-10 (didn't know)
+- `const`: may be **dynamically** initialized; immutable. `constexpr`: constant-initialized (compile time, in the binary); immutable. `constinit`: constant-initialized, **mutable** — *asserts* static init, compile error if initializer isn't constant-evaluable. SIOF is a dynamic-init ordering problem → constant-initialized variables don't participate → **`constinit` is the SIOF tool for mutable globals**. Completes the existing SIOF entry.
+
 ## Theme: Containers & STL
 
 ### `std::vector` reallocation total work + growth factor — 2026-07-02
@@ -149,6 +157,13 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 ### `map::operator[]` — concept known, evaluation slipped — 2026-07-10
 - **Wrong:** Knew `m["hello"]` default-inserts 0 (got `size()==1` right) but declared `0 > 0` true → wrong output. Not a knowledge gap — an execution slip (Cat A/B flavor in C++ Q&A). Fix: after stating what the expression does, *evaluate the branch with the concrete value* before declaring output. (Item #9's third appearance.)
+
+### Iterator invalidation precision: vector refinement + deque asymmetry — 2026-07-10
+- **Vector (overbroad answer):** invalidation is total only on **reallocation**; with capacity, insert invalidates at-and-after the point only.
+- **Deque (skipped — the famous one):** insert at either END invalidates **all iterators** but **NO pointers/references** (fixed blocks never move; the iterator's block-map does). Unordered_*: iterators die only on **rehash**; ptrs/refs **never** (nodes pinned).
+
+### `string_view` is not null-terminated — 2026-07-10 (skipped)
+- `printf("%s", sv.data())` over-reads: (ptr, len), no `'\0'` guarantee at `data()+size()` (substr views, raw buffers). Works-by-coincidence over whole std::strings. Fix: `%.*s` with the length, or format/iostream. Companion to item #10 (that one is lifetime; this one is termination).
 
 ## Theme: `std::optional` / `std::variant`
 
@@ -228,6 +243,12 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 ### `shared_ptr<Base>{new Derived}` survives non-virtual base dtor — 2026-07-10 ✅ (answered correctly, hard question)
 - Control block **type-erases a deleter for the constructor's argument type** (`Derived*`), so destruction never consults the vtable. `unique_ptr<Base>` deletes through `Base*` → UB. Caveat: only works because the shared_ptr ctor *saw* `Derived*`.
 
+### Diamond disambiguation syntax + virtual-base cost — 2026-07-10
+- **Wrong syntax:** wrote `d::A.x`. Correct: `d.B::x` / `d.C::x` — and `d.A::x` is STILL ambiguous (two A's; naming A picks neither). Virtual inheritance: most-derived class constructs the virtual base (had this ✅); cost is a runtime **offset indirection** (vbase pointer/offset), not "getting a vtable" — A's position depends on most-derived type, so every A-member access via B*/C* pays a load; static_cast down from a virtual base is banned.
+
+### `alignas(64)` forces `sizeof` to 64 + pre-C++17 aligned-new — 2026-07-10 (skipped)
+- Array contiguity → sizeof must be a multiple of alignment → `alignas(64) struct {int}` has **sizeof 64**. This is the false-sharing fix made concrete (one element per line). Pre-C++17, plain `new` only guaranteed `max_align_t` (~16) → silently under-aligned over-aligned types; C++17 aligned `operator new(size_t, align_val_t)` fixed it.
+
 ## Theme: Raw Memory, Object Lifetime & Allocators (vector build) — 2026-07-10
 
 ### Assignment into uninitialized storage vs placement new
@@ -282,6 +303,9 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 ### False sharing — 2026-07-10 (didn't know; top-3 HFT concurrency question)
 - Two independent atomics on one 64-byte line: MESI ownership is per-*line*, so each core's write invalidates the other's copy → coherence ping-pong, every increment pays a round-trip instead of an L1 hit. Fix: `alignas(std::hardware_destructive_interference_size)` (in practice 64) or padding. Performance bug, not correctness bug. Williams ch8.
+
+### `std::async` default policy: deferred may never run — 2026-07-10 (half)
+- Had the famous half ✅: async-returned future's **destructor blocks** (unique among futures; dropping the future = synchronous call). Missed: no policy = `async|deferred`, and a **deferred task runs only on `.get()`/`.wait()`** — never call get → work never executes. Fire-and-forget needs explicit `std::launch::async`.
 
 ## Theme: Systems-Level Performance & Numbers
 
@@ -395,6 +419,9 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 ### `make_shared` vs `shared_ptr(new T)` — mechanism + weak_ptr downside — 2026-07-10
 - **Partial:** One-allocation-vs-two right; "T created then moved in" wrong — **nothing moves**, `new T` constructs at final address, ctor allocates a separate control block. Downside: fused allocation means the object's **storage can't be freed until the last `weak_ptr` dies** (object destroyed at strong==0, memory held by control block).
+
+### `std::variant` seeds (attached to declared TODO) — 2026-07-10
+- `variant<int,string> v = "hello"` → holds **string** now; the historical trap was `variant<string,bool>` picking **bool** (pointer→bool built-in conversion beat user-defined) — fixed C++20 P0608. `get<T>` wrong alternative → throws `bad_variant_access`; `get_if<T>(&v)` → nullptr (takes a POINTER). Union-less state: **`valueless_by_exception`** (type-changing assignment threw mid-construction; `index() == variant_npos`) — a variant can be genuinely empty, a union can't.
 
 ## Theme: Integer Semantics & Conversions — 2026-07-10
 
