@@ -33,14 +33,14 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 | # | Topic | The trap in one line | Frequency |
 |---|---|---|---|
-| 1 | `needExpand` / `capacity_ - 1` unsigned boundary | Underflow when `capacity_==0`; off-by-one at growth boundary | 🔁🔁 multi-session |
+| 1 | `needExpand` / `capacity_ - 1` unsigned boundary | Underflow when `capacity_==0`; off-by-one at growth boundary — **and** signed/unsigned `<` comparison: signed converts to unsigned, `-1 < v.size()` is false (missed 2026-07-10) | 🔁🔁🔁 multi-session |
 | 2 | `std::move` on `const` → silent copy | `const T&&` can't bind to `T&&`, falls back to copy ctor | ⭐ came up 2× |
 | 3 | Initialization taxonomy (`new S`, value/default/aggregate) | No mental model; came up 3+ times | ⭐ flagged as #1 study item |
 | 4 | `optional` `*` vs `.value()` | `*opt` empty = UB; `.value()` throws | ⭐ high-freq HFT |
 | 5 | ADL `swap` idiom | `using std::swap; swap(a,b);` unqualified or custom swap never wins | ⭐ high-freq HFT |
 | 6 | SSO defeats move | Short-string move costs same as copy | ⭐ high-freq HFT |
 | 7 | Lifetime extension scope | Stops at first function-return-by-reference → dangles | ⭐ high-freq HFT |
-| 8 | Cache latency + branch-mispredict numbers | L1~4/L2~12/L3~40/RAM~200 cyc; mispredict ~15–20 cyc | ⭐ memorize cold |
+| 8 | Cache latency + branch-mispredict numbers | L1~4/L2~12/L3~40/RAM~200 cyc; mispredict ~15–20 cyc; ~50 L1 hits per RAM access | ⭐ memorize cold — **3rd consecutive fail 2026-07-10; pure recall item, sticky-note it** |
 | 9 | `map::operator[]` silently inserts | Bare read mutates the map; no `operator[]` on const map — has also caused a real LC bug (min-accumulation corrupted by default-insert, see §2.1-C) | ⭐ high-freq HFT + 🔁 |
 | 10 | `string_view` lifetime | View of a temporary dangles at the semicolon | ⭐ high-freq HFT |
 | 11 | Strict weak ordering | `<=` comparator in `std::sort` is UB, not just wrong | ⭐ trap question |
@@ -51,7 +51,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 | Topic | Why flagged | Scope to cover |
 |---|---|---|
-| `std::function` | Flagged 2026-07-10; known related gap: type-erasure overhead | Type erasure mechanics, SBO (small buffer optimization), heap-alloc threshold, call overhead vs raw fn ptr / templated callable, when HFT code avoids it (`function_ref`, templates, CRTP alternatives), `std::move_only_function` (C++23) |
+| `std::function` | Flagged 2026-07-10; baseline probe same day: couldn't produce SBO/heap-alloc/indirect-call story — confirmed cold | Type erasure mechanics, SBO (small buffer optimization), heap-alloc threshold, call overhead vs raw fn ptr / templated callable, when HFT code avoids it (`function_ref`, templates, CRTP alternatives), `std::move_only_function` (C++23) |
 | Exceptions | Flagged 2026-07-10; scattered partial entries (ctor throw, `throw;` vs `throw e;`, dtor `noexcept`, `terminate` vs `abort`) but no unified model | Exception guarantees (nothrow/strong/basic), stack unwinding mechanics + cost model (zero-cost tables, why HFT bans them on hot paths), `noexcept` semantics & interaction with move (`move_if_noexcept`), function-try-blocks, exception_ptr, rethrow rules — consolidate the scattered entries into one drill |
 
 ## Theme: Move Semantics & Value Categories
@@ -83,7 +83,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 ## Theme: Initialization & Lifetime
 
-### `new S` vs `new S()` — (2026-06-28)
+### `new S` vs `new S()` — (2026-06-28) — ✅ RESOLVED: answered correctly 2026-07-10
 - **Wrong:** Thought `new S` zero-initializes.
 - **Correct:** `new S` **default-initializes** — for a non-class/aggregate scalar member, that leaves it **indeterminate** (garbage). `new S()` value-initializes (zeros). This is the classic trap.
 
@@ -127,7 +127,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 - **Wrong:** Said total copy/move work is ~3N.
 - **Correct:** Geometric series N + N/2 + N/4 + … **< 2N** → amortized O(1). Growth factors: **libstdc++ & libc++ = 2×, MSVC = 1.5×.** Reason for <2×: a sub-2 factor lets the allocator **reuse previously freed blocks** (their sum can exceed the next request); at exactly 2× the new block always exceeds the sum of all freed blocks, so no reuse.
 
-### `emplace_back` real gotcha — 2026-07-02
+### `emplace_back` real gotcha — 2026-07-02 — ✅ RESOLVED: explicit-ctor push_back/emplace_back distinction answered precisely 2026-07-10
 - **Wrong:** Cited exception safety as the trap.
 - **Correct:** Exception safety is fine (strong guarantee holds). Real trap: `emplace_back` forwards to constructors **including `explicit` ones** → `vector<vector<int>> v; v.emplace_back(10);` silently builds a **10-element vector**, while `push_back(10)` fails to compile. Bypasses the explicit-conversion guard.
 
@@ -140,6 +140,15 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 ### Container per-instance overhead — (2026-06-23, from an MLE)
 - An **empty `unordered_map` is ~56 bytes** on GCC. `vector<unordered_map<...>> dp(n)` with n=1e6 → ~56 MB before storing anything. Know rough empty-container footprints (vector ~24B, string ~32B w/ SSO buffer, unordered_map ~56B, map node ~48B+) when sizing memo structures.
+
+### Erase-inside-loop: second bug beyond invalidation — 2026-07-10
+- **Partial:** Gave `it = v.erase(it)` but kept the loop's `++it` — every element after an erasure is skipped (adjacent matches missed). Correct idiom: increment only in the else-branch; or `std::erase(v, val)` (C++20) / erase-remove. *(C++ instance of Category E — operation ordering.)*
+
+### `s += 'x'` vs `s = s + 'x'` in a loop — 2026-07-10
+- **Didn't know:** `+=` appends in place, geometric growth → amortized O(1), **O(n) total**. `s + 'x'` builds a new temporary copying all k chars each iteration → **O(n²) total**. Same analysis as vector growth; `+=` mutates, `+` constructs. *(Cross-ref Category I — wrong complexity class.)*
+
+### `map::operator[]` — concept known, evaluation slipped — 2026-07-10
+- **Wrong:** Knew `m["hello"]` default-inserts 0 (got `size()==1` right) but declared `0 > 0` true → wrong output. Not a knowledge gap — an execution slip (Cat A/B flavor in C++ Q&A). Fix: after stating what the expression does, *evaluate the branch with the concrete value* before declaring output. (Item #9's third appearance.)
 
 ## Theme: `std::optional` / `std::variant`
 
@@ -179,6 +188,9 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 ### Strict aliasing exemptions — (2026-06-19, mostly correct)
 - Exempt aliasing types are `char*`, `unsigned char*`, `std::byte*` (not `const char*` specifically — it's the underlying char family). They may alias any type; others reading through a mismatched pointer is UB (compiler may serve a stale register value).
 
+### Float bit pattern: `memcpy` / `bit_cast` — 2026-07-10 (known but unconfident)
+- Named UB + memcpy + bit_cast as "unsure" — all three were right. Both sanctioned routes compile to zero instructions; `bit_cast` adds constexpr + size-checked. Say the strict-aliasing verdict *firmly*.
+
 ## Theme: Class Mechanics & Exceptions
 
 ### ODR violation is not always a linker error — (2026-06-19)
@@ -203,6 +215,18 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 ### Non-virtual base destructor + delete-through-base — 2026-07-02 (correct)
 - `Base* p = new Derived; delete p;` with a non-virtual base dtor is **UB**; only `~Base` runs (static dispatch), `~Derived` skipped → derived resources leak.
+
+### Destructor-only class + `std::move` → silent copy → double-free — 2026-07-10
+- **Wrong:** Said "exception is thrown." **No exception — worse.** User-declared dtor suppresses *move* members but copy members are still generated (deprecated, but present). `std::move` falls back to the **copy ctor silently**; two owners, dtor runs twice → **double-free**. Rule of Five (named it right). Same silent-fallback shape as `std::move`-on-const. C++ failure mode is "compiles, quietly wrong," almost never "throws."
+
+### One vptr in single inheritance, not one per class — 2026-07-10
+- **Wrong:** Said Base part and Derived part *each* contain a vptr. **Single inheritance = ONE vptr at offset 0**, reused by Derived; during construction it's repointed to Derived's vtable (ties to virtual-call-from-ctor entry). Layout: `[vptr][x][y]`. Multiple vptrs only with **multiple inheritance** (one per polymorphic base). Dispatch = two dependent loads (vptr, then slot) + indirect call.
+
+### Slicing: vptr isn't lost, a new object is constructed — 2026-07-10
+- **Partial:** Said "d becomes a base object" — right result, missing mechanism: `f(Base b)` **copy-constructs a fresh Base** from the Base subobject, and every ctor sets the new object's vptr to *its own* vtable. The vptr is never copied. Dispatch works perfectly — on an object that genuinely is a Base.
+
+### `shared_ptr<Base>{new Derived}` survives non-virtual base dtor — 2026-07-10 ✅ (answered correctly, hard question)
+- Control block **type-erases a deleter for the constructor's argument type** (`Derived*`), so destruction never consults the vtable. `unique_ptr<Base>` deletes through `Base*` → UB. Caveat: only works because the shared_ptr ctor *saw* `Derived*`.
 
 ## Theme: Raw Memory, Object Lifetime & Allocators (vector build) — 2026-07-10
 
@@ -234,6 +258,9 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 ### Reference-capture dangling — (2026-06-28, correct)
 - `[&count]` returned from a factory dangles once the enclosing function returns; switching to by-value `[count]` copies and works as a counter. ✅
 
+### `[=]` captures `this` (the pointer), not members by value — 2026-07-10
+- **Didn't know:** `[=]{ return id_ * 2; }` is really `this->id_` through a captured *pointer*. Temporary object + deferred execution (async) → dangling `this`, UB. Fix: **`[*this]`** (C++17) copies the object, or `[id = id_]`. C++20 deprecated implicit this-capture via `[=]`. Sneakier sibling of the reference-capture-dangling entry — `[=]` *looks* like it copies everything.
+
 ## Theme: Concurrency & Memory Model
 
 *Concurrency was deliberately paused during several Q&A sessions ("haven't studied yet"). Being addressed via Williams (ch. 5 → 6.2 → 7 → 3.2, 3.3, 8.2). Add mistakes here as they surface — currently the highest-priority prep gap.*
@@ -243,6 +270,18 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 - **Correct:** `scoped_lock` with multiple mutexes uses `std::lock` internally (try-and-back-off) → **order doesn't matter**, it exists specifically to prevent multi-mutex deadlock. `lock_guard` is the sequential, order-dependent one.
 
 *(Memory ordering, false sharing, SPSC — studied via Williams ch.5/6; no graded mistakes logged yet, mostly correct in study sessions. Watch for: seq_cst-vs-acquire/release reasoning, memcmp gotcha for `atomic<UDT>`, `compare_exchange_weak` spurious failure.)*
+
+### `compare_exchange_weak` — spurious-failure direction backwards — 2026-07-10
+- **Wrong:** Said weak "permits true when the value has changed." Backwards: weak permits **spurious FALSE** — failing without exchanging *even when current == expected*. Never a wrong true. Exists because LL/SC reservations (ARM/POWER) can be lost incidentally; surfacing that as failure keeps the primitive cheap. Weak in retry loops (spurious false = one extra iteration); strong for one-shot logic.
+
+### Release/acquire happens-before — 2026-07-10 (pending, mid-ch5)
+- **Couldn't answer (expected).** Target answer: release-store/acquire-load pair = *synchronizes-with* → *happens-before*: everything sequenced before the release (incl. non-atomic `data=42`) is visible after the acquire observes the store. Both relaxed: flag itself race-free, but the edge vanishes → non-atomic `data` access is a **data race → UB** — not "stale read." That distinction is the interview discriminator. Revisit post-ch5.3.
+
+### Condition variables: second failure mode + wait mechanics — 2026-07-10
+- **Partial:** Got spurious wakeups + the notify-while-holding trade-off (waker wakes waiter into a held lock). Missed: predicate loop also guards **missed/stolen wakeups** (notify fires before wait; another thread consumes the condition between notify and wake) — checked before first sleep and after every wake. Correction: no "checks mutex is unlocked" — `wait` **atomically releases the mutex and sleeps**, re-acquires before returning; predicate always runs under the lock.
+
+### False sharing — 2026-07-10 (didn't know; top-3 HFT concurrency question)
+- Two independent atomics on one 64-byte line: MESI ownership is per-*line*, so each core's write invalidates the other's copy → coherence ping-pong, every increment pays a round-trip instead of an L1 hit. Fix: `alignas(std::hardware_destructive_interference_size)` (in practice 64) or padding. Performance bug, not correctness bug. Williams ch8.
 
 ## Theme: Systems-Level Performance & Numbers
 
@@ -310,6 +349,9 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 ### `throw` vs `throw e` (rethrow)
 - **Gap flagged:** `throw;` rethrows the current exception preserving its dynamic type; `throw e;` copies and can **slice** a polymorphic exception. Use bare `throw;` to rethrow.
 
+### `static` at namespace scope = internal linkage — 2026-07-10
+- **Half-known:** Knew anonymous namespace gives internal linkage; unsure about `static` — it means **exactly the same thing** at namespace scope. Differences: anonymous namespace also covers **types** (can't `static` a class), one construct for everything → recommended style; `static` = legacy special case for functions/variables.
+
 ## Theme: Standard Library Gaps (from 152-session)
 
 ### `std::variant` vs `union` — (didn't know variant)
@@ -344,6 +386,23 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 - Forces the compiler not to optimize away a variable's reads/writes and not to reorder *that variable's* accesses. **Not** sufficient for threading: no atomicity, no cross-thread ordering. Use `std::atomic`. (Full thread version in Concurrency theme once studied.)
 
 ---
+
+### `unique_ptr` deleter storage: EBO, not type erasure — 2026-07-10
+- **Partial:** Got the determinant (stateless vs stateful deleter), wrong mechanism ("type erasure"). `unique_ptr<T,D>`'s deleter is in the **type**; empty case is free via **EBO** (compressed pair / `[[no_unique_address]]`). Type erasure is `shared_ptr`'s deleter (control block — never changes `sizeof(shared_ptr)`) and `std::function`.
+
+### Hash/equality invariant for `unordered_map` keys — 2026-07-10
+- **Missed both halves:** unordered needs hash **and equality** (hash can't resolve bucket collisions). Invariant: **`a == b` ⇒ `hash(a) == hash(b)`** — violate it (hash covers a field `==` ignores) and equal keys land in different buckets: inserts succeed, lookups return `end()`. Silent. `map` analog: `==` must agree with comparator-equivalence.
+
+### `make_shared` vs `shared_ptr(new T)` — mechanism + weak_ptr downside — 2026-07-10
+- **Partial:** One-allocation-vs-two right; "T created then moved in" wrong — **nothing moves**, `new T` constructs at final address, ctor allocates a separate control block. Downside: fused allocation means the object's **storage can't be freed until the last `weak_ptr` dies** (object destroyed at strong==0, memory held by control block).
+
+## Theme: Integer Semantics & Conversions — 2026-07-10
+
+### Signed/unsigned comparison: conversion goes UP — 2026-07-10
+- **Wrong:** Guessed `size_t` converts to int → said `-1 < v.size()` is true. Backwards: **signed converts to unsigned** when unsigned rank ≥ signed rank → `x` becomes 2^64−1 → **false**. Mnemonic: *unsigned is contagious upward*. This is priority item #1 in a different costume; reason `-Wsign-compare` exists.
+
+### Integral promotion: `uint8_t + uint8_t` is an `int` — 2026-07-10
+- **Partial (named the rule, didn't commit):** anything smaller than `int` promotes first → `auto c = a + b` is **`int` holding 300**, no wrap. `uint8_t c = a + b` then narrows: 300 % 256 = **44** (unsigned narrowing well-defined). The "obvious" wraparound answer is wrong twice.
 
 # Part 2 — LeetCode
 
