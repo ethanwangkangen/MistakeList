@@ -47,6 +47,13 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 *(Coding-side recurrences — identifier swaps, formula transcription, `lower_bound`/`upper_bound` conventions, monotonic-structure ordering — live in Part 2 §2.1, which is their system of record.)*
 
+## 1.2 Future Study TODO (flagged weak, not yet drilled)
+
+| Topic | Why flagged | Scope to cover |
+|---|---|---|
+| `std::function` | Flagged 2026-07-10; known related gap: type-erasure overhead | Type erasure mechanics, SBO (small buffer optimization), heap-alloc threshold, call overhead vs raw fn ptr / templated callable, when HFT code avoids it (`function_ref`, templates, CRTP alternatives), `std::move_only_function` (C++23) |
+| Exceptions | Flagged 2026-07-10; scattered partial entries (ctor throw, `throw;` vs `throw e;`, dtor `noexcept`, `terminate` vs `abort`) but no unified model | Exception guarantees (nothrow/strong/basic), stack unwinding mechanics + cost model (zero-cost tables, why HFT bans them on hot paths), `noexcept` semantics & interaction with move (`move_if_noexcept`), function-try-blocks, exception_ptr, rethrow rules — consolidate the scattered entries into one drill |
+
 ## Theme: Move Semantics & Value Categories
 
 ### `std::move` on a `const` object → silent copy — (2026-05-27, again 2026-06-28)
@@ -196,6 +203,27 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 ### Non-virtual base destructor + delete-through-base — 2026-07-02 (correct)
 - `Base* p = new Derived; delete p;` with a non-virtual base dtor is **UB**; only `~Base` runs (static dispatch), `~Derived` skipped → derived resources leak.
+
+## Theme: Raw Memory, Object Lifetime & Allocators (vector build) — 2026-07-10
+
+### Assignment into uninitialized storage vs placement new
+- **Wrong:** Proposed `data_[size_] = std::move(element);` in `push_back` writing into raw `operator new` memory.
+- **Correct:** No `Element` object is alive at `data_[size_]` — move-*assignment* reads/releases the destination's existing state (garbage) → **UB**. Assignment requires a live object; construction creates one. Must placement-new: `new (data_ + size_) Element(std::move(element));`
+- **Why it "worked" anyway (lock this in):** (1) trivial types — assignment and construction emit the identical store instruction; (2) fresh OS pages are zeroed, and zeroed bytes often masquerade as a valid empty object (`delete nullptr` is a no-op); (3) UB is a license, not an obligation — `-O0` today ≠ `-O3` tomorrow. "It worked" is not evidence of correctness. Detonates with recycled buffers holding stale pointers. ASan won't catch it (lifetime, not bounds); MSan or `constexpr` evaluation will.
+
+### `move_if_noexcept` — where it belongs
+- **Gap:** Asked whether `push_back`'s by-value parameter needs it. No — the parameter is already the callee's; if construction throws, `size_` is untouched → strong guarantee for free.
+- **Correct placement:** the **reallocation loop** (old buffer → new buffer). A throwing move mid-loop leaves the old buffer half-gutted with no rollback → fall back to copying unless the move ctor is `noexcept`. This is *why* move ctors should be marked `noexcept`.
+
+### Per-element `delete` on elements inside one allocation
+- **Wrong:** Proposed calling `delete` on each element in `reserve` teardown to "destroy + free in one step."
+- **Correct:** `delete p` = `p->~T()` + `operator delete(p)`. `data_ + i` was never returned by an allocation — the heap has no metadata for a mid-block pointer → heap corruption. Even `delete data_` is wrong (one dtor only, and pairs `delete` with raw-`operator new` memory). Pattern: explicit dtor calls (**reverse order**, mirroring construction) + **one** `operator delete(data_)`.
+- **Rule:** `new T` fuses allocate+construct, so `delete` fuses destroy+deallocate. You unfused the front (raw alloc + placement new) → you must unfuse the back. Pairing never mixes: `new`/`delete`, `new[]`/`delete[]`, `operator new`/`operator delete`, `malloc`/`free`.
+
+### `allocator::deallocate(ptr, n)` — sized deallocation contract
+- **Learned:** `n` must equal the count passed to the matching `allocate` — for a vector, the **capacity, not the size**. Wrong `n` is **UB**, not a checked error (std::allocator may tolerate it by coincidence; a pool allocator puts the block on the wrong free list).
+- **Why the interface wants the size back:** caller-remembers-size lets allocators (pools, arenas, size-class free lists) skip per-allocation metadata entirely — the perf rationale behind C++14 sized `operator delete`.
+- **Bug pattern to watch:** in `reserve`, deallocating the *old* buffer with the *new* capacity after overwriting `cap_`. Save old capacity first. Destroy count (`size_`) ≠ deallocate count (`cap_`). Go through `allocator_traits` (`destroy`, `deallocate`).
 
 ## Theme: Lambdas
 
