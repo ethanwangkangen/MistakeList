@@ -1,16 +1,12 @@
 # C++ / HFT Interview Prep — Mistake Ledger
 
 Running record of mistakes, misconceptions, and weak areas from interview practice.
-**Part 1 = C++ depth Q&A** — knowledge gaps grouped by theme, with a heatmap on top.
-**Part 2 = LeetCode** — bug taxonomy with running counts and examples, identification failures, per-problem log, pre-submit checklist.
+**Part 1 = C++ depth** — knowledge gaps by theme, heatmap on top.
+**Part 2 = LeetCode** — bug taxonomy with counts, identification failures, per-problem log, pre-submit checklist.
 
-**Update protocol (per session):**
-1. Every new LeetCode bug → classify into a taxonomy category (§2.1), increment its count, add a one-liner example there, and add the problem to the per-problem log (§2.4).
-2. Every "reached for the wrong approach" event → row in §2.2 with root cause + trigger heuristic.
-3. New C++ gaps → under their theme in Part 1; refresh the heatmap status if a theme moves.
-4. Anything recurring across ≥2 sessions → promote to the relevant priority table.
+**Update protocol:** new LC bug → classify into §2.1, increment count, one-liner example, add to §2.4. Wrong-approach event → row in §2.2. New C++ gap → its theme in Part 1. Recurring across ≥2 sessions → promote to a priority table.
 
-> Rebuilt 2026-07-03 from ~25 sessions spanning May–July 2026, including the 152-question C++ marathon (2026-06-19), the June LeetCode debugging cluster, the paradigm-installation sessions (Jun 16 / Jun 26 / Jun 30), and the Jul 1 DP/greedy drill. Best-effort: all graded-mistake sessions mined via keyword search + chronological page-through.
+> Condensed 2026-07-29 from the 07-13 edition + five unpushed sessions (07-19, 07-25, 07-26, 07-29). Verbose entries compressed to wrong→correct cores; no distinct mistake dropped.
 
 ---
 
@@ -20,773 +16,477 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 | Area | Status | Notes |
 |---|---|---|
-| Initialization taxonomy (value/default/aggregate, copy- vs direct-init, `explicit`) | 🔴 weak | Came up 3+ times, flagged #1 study item. Meyers 7 & 27 |
-| Systems numbers (cache latencies, mispredict cost) | 🔴 memorize cold | Understood *why*, couldn't produce numbers |
-| Concurrency & memory model | 🟡 in progress | Studying Williams; no graded mistakes yet — expect entries here |
-| Precise-semantics precision ("80% answers") | 🟡 shaky | Many small fixes: `inline`, RAII scope, RVO/NRVO, `throw;` vs `throw e;` |
+| Initialization taxonomy (value/default/aggregate, copy- vs direct-init, `explicit`) | 🔴 weak | 3+ hits, #1 study item. Meyers 7 & 27 |
+| Systems numbers (cache latencies, mispredict cost) | 🔴 memorize cold | Understood *why*, can't produce numbers |
+| Custom-container mechanics (growth, lifetime, allocator contracts) | 🔴 weak | Two full vector builds (07-25, 07-26); growth-from-zero recurred across both |
+| Concurrency & memory model | 🟡 improving | Memory-order reasoning now strong (13/14 fill-in); gaps are in the *library* surface (guards, tags, thread lifecycle) and in race-vs-UB taxonomy |
+| Precise-semantics precision ("80% answers") | 🟡 shaky | `inline`, RAII scope, RVO/NRVO, `throw;` vs `throw e;` |
 | Standard library edge cases | 🟡 shaky | `variant`, `map::operator[]`, `string_view` lifetime, strict weak ordering |
-| Move semantics & value categories | 🟢 mostly solid | Edge cases remain: const-move, SSO, moved-from terminology |
-| Templates & generic code | 🟢 mostly solid | ADL swap and `if constexpr` were the gaps; collapsing/decltype solid |
-| Class mechanics, virtual dispatch, exceptions | 🟢 mostly solid | Terminology slips (ref cycle ≠ deadlock); ctor-throw rules to lock in |
+| Move semantics & value categories | 🟢 mostly solid | Edge cases: const-move, SSO, moved-from terminology |
+| Templates & generic code | 🟢 mostly solid | ADL swap, `if constexpr` were the gaps |
+| Class mechanics, virtual dispatch, exceptions | 🟢 mostly solid | Terminology slips; ctor-throw rules to lock |
 
-## 1.1 Recurring / High-Priority (drill these first)
+## 1.1 Recurring / High-Priority (drill first)
 
-| # | Topic | The trap in one line | Frequency |
+| # | Topic | Trap in one line | Freq |
 |---|---|---|---|
-| 1 | `needExpand` / `capacity_ - 1` unsigned boundary | Underflow when `capacity_==0`; off-by-one at growth boundary — **and** signed/unsigned `<` comparison: signed converts to unsigned, `-1 < v.size()` is false (missed 2026-07-10; recurred 2026-07-13 in Fibonacci-cap loop — flagged, consciously accepted as benign with positive sizes) | 🔁🔁🔁 multi-session |
-| 2 | `std::move` on `const` → silent copy | `const T&&` can't bind to `T&&`, falls back to copy ctor | ⭐ came up 2× |
-| 3 | Initialization taxonomy (`new S`, value/default/aggregate) | No mental model; came up 3+ times | ⭐ flagged as #1 study item |
-| 4 | `optional` `*` vs `.value()` | `*opt` empty = UB; `.value()` throws | ⭐ high-freq HFT |
-| 5 | ADL `swap` idiom | `using std::swap; swap(a,b);` unqualified or custom swap never wins | ⭐ high-freq HFT |
-| 6 | SSO defeats move | Short-string move costs same as copy | ⭐ high-freq HFT |
-| 7 | Lifetime extension — full two-part rule | (a) ANY reference directly bound to a temporary extends it (`const&`, `T&&`, `auto&&` all extend — "only const&" is folklore; non-const lvalue refs just can't *bind*); (b) extension stops at first function-return-by-reference. Half (a) answered confidently-wrong 2026-07-10 | ⭐ high-freq HFT + 🔁 misconception |
-| 8 | Cache latency + branch-mispredict numbers | L1~4/L2~12/L3~40/RAM~200 cyc; mispredict ~15–20 cyc; ~50 L1 hits per RAM access | ⭐ memorize cold — **3rd consecutive fail 2026-07-10; pure recall item, sticky-note it** |
-| 9 | `map::operator[]` silently inserts | Bare read mutates the map; no `operator[]` on const map — has also caused a real LC bug (min-accumulation corrupted by default-insert, see §2.1-C) — **3rd hit 2026-07-13** (default-constructed a Cache with indeterminate member); promote to reflex: `find()` before every map read | ⭐ high-freq HFT + 🔁🔁 |
-| 10 | `string_view` lifetime | View of a temporary dangles at the semicolon | ⭐ high-freq HFT |
-| 11 | Strict weak ordering | `<=` comparator in `std::sort` is UB, not just wrong | ⭐ trap question |
+| 1 | Signed/unsigned comparison & unsigned underflow | `i < v.size()` with `int i`; `size()-2` wraps at n≤1; `capacity_-1` wraps at 0. Conversion goes UP to unsigned, so `-1 < size()` is FALSE | 🔁🔁🔁🔁 **most frequent item in the ledger; every LC session** |
+| 2 | Growth-from-zero in custom containers | `capacity_*2` (or `*3`) stays 0; `size_ >= capacity_-1` wraps to SIZE_MAX. Fix: `capacity_ ? capacity_*2 : 1` | 🔁🔁 07-25 and 07-26, two builds running |
+| 3 | `map::operator[]` silently inserts | Bare read mutates; poisons min/max folds; default-constructs members with no NSDMI | 🔁🔁🔁 3 hits → reflex: `find()` before every map read |
+| 4 | Initialization taxonomy (`new S`, value/default/aggregate) | No mental model | ⭐ #1 study item |
+| 5 | Negative modulo | C++ `%` truncates toward zero: `-27 % 26 == -1`, not 25 (Python differs). Guard: `((x % m) + m) % m`. Same idiom for cyclic indices `(i - k + n) % n` | 🔁🔁🔁 wraparound bit three times in different costumes (cyclic row shifts, circular arrays, alphabet rotation) |
+| 6 | `std::move` on `const` → silent copy | `const T&&` can't bind to `T&&` → copy ctor | ⭐ 2× |
+| 7 | Lifetime extension — two-part rule | (a) ANY reference **directly bound** to a temporary extends it (`const&`, `T&&`, `auto&&` all extend — "only const&" is folklore; non-const lvalue refs just can't *bind*); (b) extension stops at the first function-return-by-reference | ⭐ + 🔁 |
+| 8 | Cache latency + branch-mispredict numbers | L1~4 / L2~12 / L3~40 / RAM~200 cyc; mispredict ~15–20 cyc; ~50 L1 hits per RAM access | ⭐ **3rd consecutive fail — pure recall, sticky-note it** |
+| 9 | `optional` `*` vs `.value()` | `*opt` empty = UB; `.value()` throws | ⭐ high-freq HFT |
+| 10 | ADL `swap` idiom | `using std::swap; swap(a,b);` — qualified call defeats custom swap | ⭐ high-freq HFT |
+| 11 | SSO defeats move | Short-string move costs the same as a copy | ⭐ high-freq HFT |
+| 12 | `string_view` lifetime + not null-terminated | View of a temporary dangles at the semicolon; `data()` has no `'\0'` | ⭐ high-freq HFT |
+| 13 | Strict weak ordering | `<=` comparator in `std::sort` is UB, not just wrong | ⭐ trap question |
 
-*(Coding-side recurrences — identifier swaps, formula transcription, `lower_bound`/`upper_bound` conventions, monotonic-structure ordering — live in Part 2 §2.1, which is their system of record.)*
+## 1.2 Future Study TODO (flagged, not yet drilled)
 
-## 1.2 Future Study TODO (flagged weak, not yet drilled)
-
-| Topic | Why flagged | Scope to cover |
-|---|---|---|
-| `std::function` | Flagged 2026-07-10; baseline probe same day: couldn't produce SBO/heap-alloc/indirect-call story — confirmed cold | Type erasure mechanics, SBO (small buffer optimization), heap-alloc threshold, call overhead vs raw fn ptr / templated callable, when HFT code avoids it (`function_ref`, templates, CRTP alternatives), `std::move_only_function` (C++23) |
-| Exceptions | Flagged 2026-07-10; scattered partial entries (ctor throw, `throw;` vs `throw e;`, dtor `noexcept`, `terminate` vs `abort`) but no unified model | Exception guarantees (nothrow/strong/basic), stack unwinding mechanics + cost model (zero-cost tables, why HFT bans them on hot paths), `noexcept` semantics & interaction with move (`move_if_noexcept`), function-try-blocks, exception_ptr, rethrow rules — consolidate the scattered entries into one drill |
+- **`std::function`** — confirmed cold 07-10. Type erasure, SBO + heap-alloc threshold, call overhead vs raw fn ptr / templated callable, HFT alternatives (`function_ref`, templates, CRTP), `std::move_only_function` (C++23).
+- **Exceptions** — scattered partials, no unified model. Guarantees (nothrow/strong/basic), unwinding cost model (zero-cost tables, why HFT bans them hot-path), `noexcept` × move (`move_if_noexcept`), function-try-blocks, `exception_ptr`, rethrow rules.
 
 ## Theme: Move Semantics & Value Categories
 
-### `std::move` on a `const` object → silent copy — (2026-05-27, again 2026-06-28)
-- **Wrong:** Said the rvalue-ref overload wins when you `std::move` a const object.
-- **Correct:** `std::move` on `const std::string` yields `const std::string&&`. No move ctor accepts `const T&&` (moving would steal from a const), so overload resolution falls back to the **copy** ctor. Compiles, silently copies. `std::move` does *not* strip const.
-
-### SSO defeats move — 2026-07-02
-- **Wrong:** Reasoned move is always cheaper than copy.
-- **Correct:** Long-string move = O(1) (steal heap pointer). **Short-string move = same cost as a copy** — SSO stores chars *inline* in the object, no pointer to steal, bytes must be physically copied. Move is not universally cheaper.
-
-### `std::move` on a return value (pessimizing move) — 2026-07-02
-- **Sharpened (got the conclusion, tightened mechanism):** `return std::move(x)` turns an elidable **prvalue** into a non-elidable **xvalue**, disabling guaranteed copy elision (C++17). Strictly no better, sometimes worse → `-Wpessimizing-move`. For cheap movable types the assembly is often identical, but you trade a language *guarantee* for an optimizer's *maybe*; for a type with a non-trivial move it becomes real work.
-
-### NRVO disabled — output counting — (2026-06-28)
-- **Wrong:** Said output was "124" (copy + assignment).
-- **Correct:** It's "133". A return of a named local is an **implicit move** (since C++11) → move ctor. Then initializing from the returned rvalue is another move ctor. No copy, no assignment. `A b = foo()` is copy-init *syntax* but calls a constructor, not `operator=`.
-
-### Moved-from state terminology — 2026-07-02
-- **Wrong:** Called it "indeterminate."
-- **Correct:** The term is **valid but unspecified**. "Indeterminate" = *uninitialized memory*, a different concept. You may call any no-precondition op (assign, `clear`, `size`); just can't assume the value.
-
-### Pass-by-value-and-move (sink) — reinforced across sessions
-- **The idiom:** `void set(std::string n){ member_ = std::move(n); }` — use **when the function stores/owns a copy anyway**; lets caller move in for free (rvalue → 2 cheap moves, 0 copies). `const&` always copies for the rvalue case. Not "when I want to modify." Read-only → `const&` still wins.
-
-### `std::forward` vs `std::move` with forwarding reference — (2026-06-28, correct)
-- Given `wrapper(T&& arg)` called with an lvalue: `T` deduces to `int&`; `std::forward<T>(arg)` yields `int&`, `std::move(arg)` yields `int&&`. ✅ (logged as a *correct* answer for reference.)
-
-### Rvalue references DO extend temporary lifetime — 2026-07-10 (confident-wrong)
-- **Wrong:** Said `auto&& u = makeBig();` and `T&& m = makeBig();` give no extension → destroyed after the line.
-- **Correct:** ANY reference **directly bound** to a temporary extends it to the reference's scope. The "only `const&`" folklore exists because non-const *lvalue* refs can't bind to temporaries at all — among lvalue refs only const ones get the chance. `T&&`/`auto&&` bind fine and extend identically. Interlocks with item #7: survives any reference kind, dies through function-return-by-reference.
-- **Range-for corollary:** `for (x : make().member())` dangled pre-C++23 (extension covered only the directly-bound member, owner temporary died); **C++23 P2718** extends ALL temporaries in the range-initializer for the loop.
+- **`std::move` on `const`** (05-27, 06-28) — yields `const T&&`; no move ctor accepts it, so overload resolution falls back to **copy**. `std::move` does not strip const.
+- **SSO defeats move** (07-02) — long-string move = O(1) pointer steal; short-string move = copy cost, chars live inline.
+- **Pessimizing move** (07-02) — `return std::move(x)` turns an elidable prvalue into a non-elidable xvalue, killing guaranteed copy elision. `-Wpessimizing-move`.
+- **NRVO output counting** (06-28) — wrong "124", correct **"133"**: return of a named local is an implicit move; initializing from the returned rvalue is a second move. `A b = foo()` is copy-init *syntax* calling a ctor, not `operator=`.
+- **Moved-from state** (07-02) — the term is **valid but unspecified**, not "indeterminate" (that means uninitialized memory).
+- **Sink idiom** — `void set(std::string n){ member_ = std::move(n); }` when the function stores a copy anyway. Not "when I want to modify."
+- **Rvalue refs DO extend temporaries** (07-10, confident-wrong) — see §1.1 #7. C++23 P2718 extends all temporaries in a range-for initializer (pre-C++23 `for (x : make().member())` dangled).
+- ✅ Correct: `std::forward` vs `std::move` on a forwarding ref (`T` deduces `int&` for an lvalue).
 
 ## Theme: Initialization & Lifetime
 
-### `new S` vs `new S()` — (2026-06-28) — ✅ RESOLVED: answered correctly 2026-07-10
-- **Wrong:** Thought `new S` zero-initializes.
-- **Correct:** `new S` **default-initializes** — for a non-class/aggregate scalar member, that leaves it **indeterminate** (garbage). `new S()` value-initializes (zeros). This is the classic trap.
-
-### Initialization taxonomy across storage — (2026-06-28)
-- **Flagged as #1 study gap (no mental model, came up 3+ times).** The reference model:
-  - `S s2 = S();` → **value init**: zero-init then default member initializers apply.
-  - `S s3;` at **namespace/static scope** → zero-init first (static storage).
-  - `S s4;` **inside a function** (automatic) → default init; members without default member initializers are **indeterminate**. Only this case gives garbage.
-
-### Designated initializer ordering — (2026-06-28)
-- **Wrong:** Said `{.z=3, .y=2, .x=1}` compiles in C++20.
-- **Correct:** Does **not** compile. C++20 designated initializers must appear in **declaration order**.
-
-### Explicit / copy-init vs direct-init — (2026-06-28)
-- **Gap flagged:** No precise model for when `explicit` blocks a conversion and copy-init (`T x = ...`) vs direct-init (`T x(...)`) differ. Study Meyers items 7 & 27.
-
-### Lifetime extension scope — 2026-07-02
-- **Wrong:** Didn't know how far `const&` lifetime extension reaches.
-- **Correct:** Extension applies **only to the temporary bound directly**. `const std::string& r = temp.getName();` where `getName()` returns a reference to a member → `r` dangles. Extension does NOT reach through a function returning a reference into the temporary. Rule: *follows the directly-bound temporary, stops at first function-return-by-reference.*
-
-### Static initialization order fiasco — 2026-07-02
-- **Wrong:** Left blank.
-- **Correct:** Init order of statics across *different* TUs is **unspecified** → may use a not-yet-constructed object. Fix: **Construct-On-First-Use** — function-local `static` via accessor (`A& getA(){ static A a; return a; }`). Thread-safe since C++11 ("magic statics").
-
-### `static` keyword — full taxonomy — (2026-06-18, mostly solid)
-- You correctly identified **six** uses (Claude initially listed four): static locals, static data members, static member functions, static free functions (internal linkage), static globals (internal linkage), static lambdas (C++23). Related rules locked in: in-class `static` member needs an out-of-class definition unless `inline static` (C++17, avoids the ODR linker error); static storage duration → zero-init, static locals additionally dynamically initialized on first pass.
-
-### Value init taxonomy (block-scope bare `int x;`) — 2026-07-02 (mostly correct)
-- Only bare `int x;` at **block scope** is indeterminate. `int x{}`, `int x = int()` are zero everywhere; namespace/static scope is always zero.
-
-### Default arg referencing another parameter — (2026-06-28)
-- **Wrong:** Guessed `void foo(int a, int b = a){}` compiles.
-- **Correct:** Doesn't compile. Default args are evaluated at the call site where other parameters aren't in scope.
-
-### Dangling reference / `string_view` — (2026-06-28, correct)
-- Returning `const std::string&` to a local dangles once the function returns; returning `std::string_view` of a local has the **same** problem. ✅
-
-### `const` vs `constexpr` vs `constinit` — SIOF completion — 2026-07-10 (didn't know)
-- `const`: may be **dynamically** initialized; immutable. `constexpr`: constant-initialized (compile time, in the binary); immutable. `constinit`: constant-initialized, **mutable** — *asserts* static init, compile error if initializer isn't constant-evaluable. SIOF is a dynamic-init ordering problem → constant-initialized variables don't participate → **`constinit` is the SIOF tool for mutable globals**. Completes the existing SIOF entry.
+- **`new S` vs `new S()`** — `new S` default-initializes → scalar members **indeterminate**; `new S()` value-initializes → zeros. ✅ resolved 07-10.
+- **Init taxonomy across storage** — `S s = S();` value-init (zero then NSDMIs); `S s;` at namespace/static scope zero-inits; `S s;` inside a function default-inits → members without NSDMIs indeterminate. **Only the automatic case gives garbage.**
+- **Designated initializers** must appear in declaration order (C++20); `{.z=3,.y=2,.x=1}` does not compile.
+- **`explicit` / copy-init vs direct-init** — no precise model yet. Meyers 7 & 27.
+- **Lifetime extension scope** — follows the **directly-bound** temporary only; `const std::string& r = temp.getName();` returning a member ref dangles.
+- **SIOF** — cross-TU static init order is unspecified. Fix: Construct-On-First-Use (function-local static, thread-safe since C++11). `constinit` is the tool for **mutable** globals (asserts constant-init, compile error otherwise); `const` may be dynamically initialized; `constexpr` is const + constant-initialized.
+- **`static` — six uses** ✅ (statics locals, data members, member fns, free fns, globals, C++23 static lambdas). In-class static member needs an out-of-class definition unless `inline static` (C++17).
+- **Block-scope bare `int x;`** is the only indeterminate case; `int x{}` / `int x = int()` zero everywhere.
+- **Default arg referencing another parameter** — `void foo(int a, int b = a)` does not compile; other params aren't in scope at the call site.
+- ✅ Returning `const std::string&` or `string_view` to a local both dangle.
 
 ## Theme: Containers & STL
 
-### `std::vector` reallocation total work + growth factor — 2026-07-02
-- **Wrong:** Said total copy/move work is ~3N.
-- **Correct:** Geometric series N + N/2 + N/4 + … **< 2N** → amortized O(1). Growth factors: **libstdc++ & libc++ = 2×, MSVC = 1.5×.** Reason for <2×: a sub-2 factor lets the allocator **reuse previously freed blocks** (their sum can exceed the next request); at exactly 2× the new block always exceeds the sum of all freed blocks, so no reuse.
-
-### `emplace_back` real gotcha — 2026-07-02 — ✅ RESOLVED: explicit-ctor push_back/emplace_back distinction answered precisely 2026-07-10
-- **Wrong:** Cited exception safety as the trap.
-- **Correct:** Exception safety is fine (strong guarantee holds). Real trap: `emplace_back` forwards to constructors **including `explicit` ones** → `vector<vector<int>> v; v.emplace_back(10);` silently builds a **10-element vector**, while `push_back(10)` fails to compile. Bypasses the explicit-conversion guard.
-
-### `emplace_back(new Derived())` failure mode — (2026-06-28)
-- **Wrong:** Thought the wrong destructor gets called.
-- **Correct:** No destructor runs at all. The danger is a **memory leak** — if the vector's reallocation throws before the raw pointer is adopted by a `unique_ptr`, the `new Derived()` is leaked because nothing owns it yet.
-
-### `std::vector<bool>` — 2026-07-02 (root cause known, symptoms missed)
-- **Correct root cause known** ("not really a vector"). **Concrete symptoms to add:** bit-packed specialization; `operator[]` returns a **proxy**, not `bool&`. (1) `auto b = v[i];` deduces the *proxy*; (2) can't take `bool* p = &v[i];`; (3) no contiguous `.data()` → breaks C-API interop. `sizeof(vector<bool>)` is still the normal ~24 bytes (three pointers) — `sizeof` measures the object, not the heap data.
-
-### Container per-instance overhead — (2026-06-23, from an MLE)
-- An **empty `unordered_map` is ~56 bytes** on GCC. `vector<unordered_map<...>> dp(n)` with n=1e6 → ~56 MB before storing anything. Know rough empty-container footprints (vector ~24B, string ~32B w/ SSO buffer, unordered_map ~56B, map node ~48B+) when sizing memo structures.
-
-### Erase-inside-loop: second bug beyond invalidation — 2026-07-10
-- **Partial:** Gave `it = v.erase(it)` but kept the loop's `++it` — every element after an erasure is skipped (adjacent matches missed). Correct idiom: increment only in the else-branch; or `std::erase(v, val)` (C++20) / erase-remove. *(C++ instance of Category E — operation ordering.)*
-
-### `s += 'x'` vs `s = s + 'x'` in a loop — 2026-07-10
-- **Didn't know:** `+=` appends in place, geometric growth → amortized O(1), **O(n) total**. `s + 'x'` builds a new temporary copying all k chars each iteration → **O(n²) total**. Same analysis as vector growth; `+=` mutates, `+` constructs. *(Cross-ref Category I — wrong complexity class.)*
-
-### `map::operator[]` — concept known, evaluation slipped — 2026-07-10
-- **Wrong:** Knew `m["hello"]` default-inserts 0 (got `size()==1` right) but declared `0 > 0` true → wrong output. Not a knowledge gap — an execution slip (Cat A/B flavor in C++ Q&A). Fix: after stating what the expression does, *evaluate the branch with the concrete value* before declaring output. (Item #9's third appearance.)
-
-### Iterator invalidation precision: vector refinement + deque asymmetry — 2026-07-10
-- **Vector (overbroad answer):** invalidation is total only on **reallocation**; with capacity, insert invalidates at-and-after the point only.
-- **Deque (skipped — the famous one):** insert at either END invalidates **all iterators** but **NO pointers/references** (fixed blocks never move; the iterator's block-map does). Unordered_*: iterators die only on **rehash**; ptrs/refs **never** (nodes pinned).
-
-### `string_view` is not null-terminated — 2026-07-10 (skipped)
-- `printf("%s", sv.data())` over-reads: (ptr, len), no `'\0'` guarantee at `data()+size()` (substr views, raw buffers). Works-by-coincidence over whole std::strings. Fix: `%.*s` with the length, or format/iostream. Companion to item #10 (that one is lifetime; this one is termination).
-
-## Theme: `std::optional` / `std::variant`
-
-### `operator*` vs `.value()` — 2026-07-02
-- **Wrong:** Unsure.
-- **Correct:** `*opt` on empty = **undefined behavior** (no check, no branch — fast). `.value()` on empty = **throws `std::bad_optional_access`**. Hot path: verify once with `if (opt)`, then use `*opt`. Mirrors `vector::operator[]` vs `.at()`.
+- **vector reallocation total work** — geometric series **< 2N**, not ~3N → amortized O(1). Growth: libstdc++/libc++ 2×, MSVC 1.5×. Sub-2 factor lets the allocator **reuse freed blocks** (their sum can exceed the next request); at exactly 2× it never can.
+- **`emplace_back` real gotcha** — not exception safety. It forwards to **`explicit`** ctors: `vector<vector<int>> v; v.emplace_back(10);` silently builds a 10-element vector; `push_back(10)` won't compile.
+- **`emplace_back(new Derived())`** — no destructor runs at all; the danger is a **leak** if reallocation throws before a `unique_ptr` adopts the pointer.
+- **`vector<bool>`** — bit-packed specialization; `operator[]` returns a **proxy**: `auto b = v[i]` deduces the proxy, `&v[i]` is illegal, no contiguous `.data()`. `sizeof` is still ~24B (object, not heap data).
+- **Container per-instance overhead** — empty `unordered_map` ~56B on GCC → `vector<unordered_map>(1e6)` ≈ 56 MB before storing anything. Rough sizes: vector ~24B, string ~32B, unordered_map ~56B, map node ~48B+.
+- **Erase-inside-loop** — `it = v.erase(it)` while keeping `++it` skips every element after an erasure. Increment only in the else-branch, or `std::erase(v, val)` (C++20).
+- **`s += 'x'` vs `s = s + 'x'`** — `+=` amortized O(1) → O(n) total; `s + 'x'` builds a fresh temporary each iteration → **O(n²)**.
+- **`map::operator[]`** (07-10) — knew it default-inserts but then evaluated `0 > 0` as true. Execution slip: after stating what an expression does, *evaluate the branch with the concrete value*.
+- **Iterator invalidation precision** — vector: total only on **reallocation**; with spare capacity, insert invalidates at-and-after only. Deque: insert at either end invalidates **all iterators** but **no pointers/references** (fixed blocks never move). Unordered: iterators die on **rehash**, ptrs/refs never (nodes pinned).
+- **`string_view` is not null-terminated** — `printf("%s", sv.data())` over-reads. Use `%.*s` with the length.
+- **`optional`** — `*opt` on empty is UB (no check, fast); `.value()` throws `bad_optional_access`. Mirrors `vector::operator[]` vs `.at()`.
 
 ## Theme: Templates & Generic Code
 
-### ADL `swap` idiom — 2026-07-02
-- **Wrong:** Unsure.
-- **Correct:** Writing `std::swap(a,b)` in generic code forces the std version and defeats a type's cheaper custom `swap`. Idiom: `using std::swap; swap(a, b);` — unqualified call lets **ADL** find the type's own `swap`, with `std::swap` as fallback. Canonical customization-point pattern (same as `std::begin`/`begin`).
-
-### `if constexpr` — 2026-07-02
-- **Wrong:** Stated only "the true branch compiles" — missed the point.
-- **Correct:** The **discarded branch is not instantiated**, so it may contain code that would be *ill-formed* for that type. A normal `if` type-checks *both* branches → hard error on the dead branch. E.g. `if constexpr (is_pointer_v<T>) return *t; else return t;` — plain `if` fails to compile `*t` when `T=int`.
-
-### Template overload resolution (T vs T& vs T&&) — (2026-06-28)
-- **Wrong:** Overload ambiguity case. Also mis-set as UB.
-- **Correct:** Ambiguous overload resolution is a **compile error**, not UB. Study partial ordering + forwarding-reference deduction (Meyers 24–26).
-
-### Partial specialization ambiguity — (2026-06-10, self-caught Claude's error)
-- Reference note: `S<T,T>` vs `S<T,int>` for `S<int,int>` is **ambiguous**, not a clean pick. (You correctly caught this — kept as a known-solid point.)
-
-### `decltype` vs `decltype((x))` — 2026-07-02 (correct)
-- `decltype(x)` → `int` (entity type). `decltype((x))` → `int&` (parenthesized = expression; lvalue int expression → `int&`).
-
-### Reference collapsing — 2026-07-02 (correct)
-- `T=int&` in `T&&` → `int&`. Table: `& &`→`&`, `& &&`→`&`, `&& &`→`&`, `&& &&`→`&&`. Any `&` collapses to `&`.
+- **ADL `swap`** — `std::swap(a,b)` in generic code defeats a cheaper custom swap. Idiom: `using std::swap; swap(a,b);` — the canonical customization-point pattern.
+- **`if constexpr`** — the discarded branch is **not instantiated**, so it may be ill-formed for that type. A plain `if` type-checks both branches.
+- **Template overload ambiguity** is a **compile error**, not UB. Meyers 24–26.
+- ✅ `S<T,T>` vs `S<T,int>` for `S<int,int>` is ambiguous. `decltype(x)` → `int`, `decltype((x))` → `int&`. Reference collapsing: any `&` collapses to `&`.
 
 ## Theme: Casting & Type Punning
 
-### `reinterpret_cast` does NOT use memcpy — (2026-06-19)
-- **Wrong:** Said `reinterpret_cast` is implemented using `memcpy`.
-- **Correct:** It changes the type of a pointer/reference with **zero codegen** — copies nothing. That's *why* it's dangerous and can violate strict aliasing. For value type-punning use `memcpy` (pre-C++20) or `std::bit_cast` (C++20). Dereferencing a `reinterpret_cast`ed pointer is only safe for `char*`/`unsigned char*`/`std::byte*`, casting back to the original type, or layout-compatible types.
-
-### Strict aliasing exemptions — (2026-06-19, mostly correct)
-- Exempt aliasing types are `char*`, `unsigned char*`, `std::byte*` (not `const char*` specifically — it's the underlying char family). They may alias any type; others reading through a mismatched pointer is UB (compiler may serve a stale register value).
-
-### Float bit pattern: `memcpy` / `bit_cast` — 2026-07-10 (known but unconfident)
-- Named UB + memcpy + bit_cast as "unsure" — all three were right. Both sanctioned routes compile to zero instructions; `bit_cast` adds constexpr + size-checked. Say the strict-aliasing verdict *firmly*.
+- **`reinterpret_cast` does not use memcpy** — zero codegen, just retypes a pointer. That's why it breaks strict aliasing. Value punning: `memcpy` (pre-C++20) or `std::bit_cast` (C++20); both compile to zero instructions.
+- **Strict aliasing exemptions** — `char*`, `unsigned char*`, `std::byte*` may alias anything; reading through any other mismatched pointer is UB (may serve a stale register).
 
 ## Theme: Class Mechanics & Exceptions
 
-### ODR violation is not always a linker error — (2026-06-19)
-- **Wrong:** Said ODR violation → linkage error.
-- **Correct:** Only duplicate **non-inline** function definitions give a clean linker error. Two TUs defining the same class/inline function *differently* is **silent UB** — the linker picks one, you get bizarre runtime bugs.
+- **ODR violation ≠ linker error** — only duplicate **non-inline** definitions give a clean error. Two TUs defining the same class/inline function *differently* is silent UB.
+- **Constructor throw** — the object's destructor does **not** run (it never fully existed); already-constructed members are unwound. Destructors are implicitly `noexcept` since C++11 → a throwing dtor calls `std::terminate`.
+- **shared_ptr cycle** is a **reference cycle**, not a "deadlock". Fix: `weak_ptr` on one side.
+- **Destructor-only class + `std::move` → double-free** — a user-declared dtor suppresses *move* members but copy members are still generated, so `std::move` silently copies; two owners, dtor twice. Rule of Five. C++'s failure mode is "compiles, quietly wrong," almost never "throws."
+- **One vptr in single inheritance** at offset 0, repointed during each ctor. Multiple vptrs only under multiple inheritance. Dispatch = two dependent loads + indirect call.
+- **Slicing** — `f(Base b)` copy-constructs a fresh Base; every ctor sets the new object's vptr to its own vtable. The vptr is never copied.
+- **`shared_ptr<Base>{new Derived}` survives a non-virtual base dtor** ✅ — the control block type-erases a deleter for the *constructor argument type*. `unique_ptr<Base>` deleting through `Base*` is UB.
+- **Diamond** — `d.B::x` / `d.C::x`; `d.A::x` is still ambiguous. Virtual inheritance costs a runtime **offset indirection**, not "a vtable"; static_cast down from a virtual base is banned.
+- **`alignas(64)`** forces `sizeof` to 64 (array contiguity) — the false-sharing fix made concrete. Pre-C++17 plain `new` only guaranteed ~16B alignment.
+- ✅ `delete` vs `delete[]`; virtual default args bound **statically** (Derived body, Base default); virtual call from a ctor resolves to Base (pure virtual = UB); non-virtual base dtor + delete-through-base = UB.
 
-### Constructor throw / destructor rules — (2026-06-28)
-- **Gap flagged:** If a constructor throws, the object's destructor does **not** run (the object never fully existed); already-constructed member sub-objects *are* unwound. Core RAII rule. Destructors are implicitly `noexcept` since C++11 — a throwing destructor calls `std::terminate`.
+## Theme: Raw Memory, Object Lifetime & Allocators
 
-### `delete p` vs `delete[] p` — (2026-06-19, correct)
-- `new int[10]` must be freed with `delete[]`. Wrong form is UB (skips element destructors / heap corruption). ✅
-
-### shared_ptr reference cycle — terminology — (2026-06-28)
-- **Wrong:** Called two `shared_ptr`s pointing at each other a "deadlock."
-- **Correct:** It's a **reference cycle** / circular reference — refcounts never reach zero → leak. Deadlock is a concurrency (lock-wait) concept. Fix: `weak_ptr` on one side.
-
-### Virtual function default arguments — (2026-06-28, correct)
-- `Base* p = new Derived; p->f();` with different default args → runs **Derived's body** but with **Base's default arg** ("Derived 10"). Default args are bound **statically** (by the pointer's static type); the function body dispatches dynamically. ✅
-
-### Virtual call from constructor — (2026-06-28, correct)
-- During `Base` construction the vptr points at `Base`'s vtable, so a virtual call resolves to `Base`'s version; a **pure** virtual called from the ctor is UB. ✅
-
-### Non-virtual base destructor + delete-through-base — 2026-07-02 (correct)
-- `Base* p = new Derived; delete p;` with a non-virtual base dtor is **UB**; only `~Base` runs (static dispatch), `~Derived` skipped → derived resources leak.
-
-### Destructor-only class + `std::move` → silent copy → double-free — 2026-07-10
-- **Wrong:** Said "exception is thrown." **No exception — worse.** User-declared dtor suppresses *move* members but copy members are still generated (deprecated, but present). `std::move` falls back to the **copy ctor silently**; two owners, dtor runs twice → **double-free**. Rule of Five (named it right). Same silent-fallback shape as `std::move`-on-const. C++ failure mode is "compiles, quietly wrong," almost never "throws."
-
-### One vptr in single inheritance, not one per class — 2026-07-10
-- **Wrong:** Said Base part and Derived part *each* contain a vptr. **Single inheritance = ONE vptr at offset 0**, reused by Derived; during construction it's repointed to Derived's vtable (ties to virtual-call-from-ctor entry). Layout: `[vptr][x][y]`. Multiple vptrs only with **multiple inheritance** (one per polymorphic base). Dispatch = two dependent loads (vptr, then slot) + indirect call.
-
-### Slicing: vptr isn't lost, a new object is constructed — 2026-07-10
-- **Partial:** Said "d becomes a base object" — right result, missing mechanism: `f(Base b)` **copy-constructs a fresh Base** from the Base subobject, and every ctor sets the new object's vptr to *its own* vtable. The vptr is never copied. Dispatch works perfectly — on an object that genuinely is a Base.
-
-### `shared_ptr<Base>{new Derived}` survives non-virtual base dtor — 2026-07-10 ✅ (answered correctly, hard question)
-- Control block **type-erases a deleter for the constructor's argument type** (`Derived*`), so destruction never consults the vtable. `unique_ptr<Base>` deletes through `Base*` → UB. Caveat: only works because the shared_ptr ctor *saw* `Derived*`.
-
-### Diamond disambiguation syntax + virtual-base cost — 2026-07-10
-- **Wrong syntax:** wrote `d::A.x`. Correct: `d.B::x` / `d.C::x` — and `d.A::x` is STILL ambiguous (two A's; naming A picks neither). Virtual inheritance: most-derived class constructs the virtual base (had this ✅); cost is a runtime **offset indirection** (vbase pointer/offset), not "getting a vtable" — A's position depends on most-derived type, so every A-member access via B*/C* pays a load; static_cast down from a virtual base is banned.
-
-### `alignas(64)` forces `sizeof` to 64 + pre-C++17 aligned-new — 2026-07-10 (skipped)
-- Array contiguity → sizeof must be a multiple of alignment → `alignas(64) struct {int}` has **sizeof 64**. This is the false-sharing fix made concrete (one element per line). Pre-C++17, plain `new` only guaranteed `max_align_t` (~16) → silently under-aligned over-aligned types; C++17 aligned `operator new(size_t, align_val_t)` fixed it.
-
-## Theme: Raw Memory, Object Lifetime & Allocators (vector build) — 2026-07-10
-
-### Assignment into uninitialized storage vs placement new
-- **Wrong:** Proposed `data_[size_] = std::move(element);` in `push_back` writing into raw `operator new` memory.
-- **Correct:** No `Element` object is alive at `data_[size_]` — move-*assignment* reads/releases the destination's existing state (garbage) → **UB**. Assignment requires a live object; construction creates one. Must placement-new: `new (data_ + size_) Element(std::move(element));`
-- **Why it "worked" anyway (lock this in):** (1) trivial types — assignment and construction emit the identical store instruction; (2) fresh OS pages are zeroed, and zeroed bytes often masquerade as a valid empty object (`delete nullptr` is a no-op); (3) UB is a license, not an obligation — `-O0` today ≠ `-O3` tomorrow. "It worked" is not evidence of correctness. Detonates with recycled buffers holding stale pointers. ASan won't catch it (lifetime, not bounds); MSan or `constexpr` evaluation will.
-
-### `move_if_noexcept` — where it belongs
-- **Gap:** Asked whether `push_back`'s by-value parameter needs it. No — the parameter is already the callee's; if construction throws, `size_` is untouched → strong guarantee for free.
-- **Correct placement:** the **reallocation loop** (old buffer → new buffer). A throwing move mid-loop leaves the old buffer half-gutted with no rollback → fall back to copying unless the move ctor is `noexcept`. This is *why* move ctors should be marked `noexcept`.
-
-### Per-element `delete` on elements inside one allocation
-- **Wrong:** Proposed calling `delete` on each element in `reserve` teardown to "destroy + free in one step."
-- **Correct:** `delete p` = `p->~T()` + `operator delete(p)`. `data_ + i` was never returned by an allocation — the heap has no metadata for a mid-block pointer → heap corruption. Even `delete data_` is wrong (one dtor only, and pairs `delete` with raw-`operator new` memory). Pattern: explicit dtor calls (**reverse order**, mirroring construction) + **one** `operator delete(data_)`.
-- **Rule:** `new T` fuses allocate+construct, so `delete` fuses destroy+deallocate. You unfused the front (raw alloc + placement new) → you must unfuse the back. Pairing never mixes: `new`/`delete`, `new[]`/`delete[]`, `operator new`/`operator delete`, `malloc`/`free`.
-
-### `allocator::deallocate(ptr, n)` — sized deallocation contract
-- **Learned:** `n` must equal the count passed to the matching `allocate` — for a vector, the **capacity, not the size**. Wrong `n` is **UB**, not a checked error (std::allocator may tolerate it by coincidence; a pool allocator puts the block on the wrong free list).
-- **Why the interface wants the size back:** caller-remembers-size lets allocators (pools, arenas, size-class free lists) skip per-allocation metadata entirely — the perf rationale behind C++14 sized `operator delete`.
-- **Bug pattern to watch:** in `reserve`, deallocating the *old* buffer with the *new* capacity after overwriting `cap_`. Save old capacity first. Destroy count (`size_`) ≠ deallocate count (`cap_`). Go through `allocator_traits` (`destroy`, `deallocate`).
+- **Assignment into uninitialized storage** — `data_[size_] = std::move(e);` on raw memory is UB: move-*assignment* reads/releases the destination's existing state. Must placement-new. Why it "worked": trivial types emit the same store; fresh OS pages are zeroed; UB is a license, not an obligation. ASan won't catch it (lifetime, not bounds); MSan will.
+- **`move_if_noexcept` belongs in the reallocation loop**, not on a by-value `push_back` parameter (that one already gives the strong guarantee for free, since `size_` is untouched if construction throws). A throwing move mid-realloc leaves the old buffer half-gutted with no rollback — this is *why* move ctors should be `noexcept`.
+- **Per-element `delete` inside one allocation** — `data_ + i` was never returned by an allocation → heap corruption. Unfuse the back if you unfused the front: explicit dtor calls in **reverse order** + one `operator delete(data_)`. Pairing never mixes: `new`/`delete`, `new[]`/`delete[]`, `operator new`/`operator delete`, `malloc`/`free`.
+- **`allocator::deallocate(ptr, n)`** — `n` must equal the `allocate` count: for a vector the **capacity, not the size**. Wrong `n` is UB. Bug pattern: deallocating the old buffer with the *new* capacity after overwriting `cap_`. Caller-remembers-size is what lets pool/arena allocators skip per-allocation metadata.
+- **`deallocate(nullptr, 0)`** (07-26) — called on every construction (ctor delegates to `reserve`, which deallocates the null `data_`) and again in the copy ctor. `deallocate` requires a pointer returned by `allocate`. Guard with `if (data_)`.
 
 ## Theme: Lambdas
 
-### `mutable` not needed for by-reference capture — (2026-06-28)
-- **Wrong:** Thought `[&count]` needs `mutable` to modify `count`.
-- **Correct:** Modifying through a **reference** capture never needs `mutable`. `mutable` is only for modifying **by-value** captures (which are const by default inside the lambda body).
-
-### Reference-capture dangling — (2026-06-28, correct)
-- `[&count]` returned from a factory dangles once the enclosing function returns; switching to by-value `[count]` copies and works as a counter. ✅
-
-### `[=]` captures `this` (the pointer), not members by value — 2026-07-10
-- **Didn't know:** `[=]{ return id_ * 2; }` is really `this->id_` through a captured *pointer*. Temporary object + deferred execution (async) → dangling `this`, UB. Fix: **`[*this]`** (C++17) copies the object, or `[id = id_]`. C++20 deprecated implicit this-capture via `[=]`. Sneakier sibling of the reference-capture-dangling entry — `[=]` *looks* like it copies everything.
+- **`mutable`** is only for modifying **by-value** captures; reference captures never need it.
+- **`[=]` captures `this`**, not members by value — `[=]{ return id_*2; }` is `this->id_` through a captured pointer → dangling under deferred execution. Fix `[*this]` (C++17) or `[id = id_]`. C++20 deprecated implicit this-capture via `[=]`.
+- ✅ `[&count]` returned from a factory dangles; by-value `[count]` works.
 
 ## Theme: Concurrency & Memory Model
 
-*Concurrency was deliberately paused during several Q&A sessions ("haven't studied yet"). Being addressed via Williams (ch. 5 → 6.2 → 7 → 3.2, 3.3, 8.2). Add mistakes here as they surface — currently the highest-priority prep gap.*
+*Now the most heavily drilled area (Williams ch.5–8 + 07-26 quiz block). Memory-*ordering* reasoning is strong; the gaps are the library surface and the race-vs-UB taxonomy.*
 
-### `scoped_lock` vs `lock_guard` — (2026-06-28)
-- **Wrong:** Said `std::scoped_lock lock(m1,m2)` vs `lock(m2,m1)` risks deadlock.
-- **Correct:** `scoped_lock` with multiple mutexes uses `std::lock` internally (try-and-back-off) → **order doesn't matter**, it exists specifically to prevent multi-mutex deadlock. `lock_guard` is the sequential, order-dependent one.
+**Memory model — misconceptions (07-26 quiz, 4 misses):**
+- **"Stack locals can't be in data races"** — wrong, and wrongly equated with `thread_local`. Stack memory is fully shareable via pointers/references; races on it are UB. Only `thread_local` (and genuinely unshared locals) are per-thread by construction.
+- **All-atomic check-then-increment called a "data race"** — atomics **never** data race. That bug is a pure **logic race** (lost updates; the limit can be exceeded between the check-load and the inner load). Wrong-answer ≠ UB; keep the two axes separate.
+- **Mutex + non-atomic flag** — verdict right, but missed that the *unlocked* read of a non-atomic `ready` is itself a data race. **A mutex synchronizes only when BOTH sides lock.**
+- **"Relaxed is fine, we only ship on x86"** — couldn't refute. Correct: the **compiler** optimizes against the C++ abstract machine, not the ISA, and may reorder plain accesses around relaxed atomics on any target.
 
-*(Memory ordering, false sharing, SPSC — studied via Williams ch.5/6; no graded mistakes logged yet, mostly correct in study sessions. Watch for: seq_cst-vs-acquire/release reasoning, memcmp gotcha for `atomic<UDT>`, `compare_exchange_weak` spurious failure.)*
+**Memory ordering — 13/14 on the fill-in drill**, including the ping-pong trap (producer's wait needs acquire because the subsequent slot write must be ordered after the consumer's read).
+- **Sole miscalibration, twice:** over-strengthening. Chose `acq_rel` for a pure event-counter `fetch_add` (relaxed is correct), and `acquire` to load the thread's **own** index in an SPSC queue (relaxed — single writer, nothing to synchronize with). The litmus question *"does any plain memory depend on this load from another thread?"* is applied in the positive direction but not the negative one.
+- **Release/acquire happens-before** — a release-store/acquire-load pair *synchronizes-with* → *happens-before*: everything sequenced before the release (including non-atomic `data=42`) is visible after the acquire observes the store. Both relaxed → the flag itself is race-free but the edge vanishes → non-atomic access is a **data race → UB**, not a "stale read." That distinction is the interview discriminator.
+- **Mutex "visibility"** (07-26, asked and resolved) — unlock = release, lock = acquire; the happens-before edge is **per-mutex-object**. Motivated by compiler reordering, store buffers, stale cache lines. Same structure as the SPSC release-store/acquire-load pair.
+- **`compare_exchange_weak`** — permits spurious **FALSE** (failing without exchanging even when current == expected), never a wrong true. LL/SC reservations can be lost incidentally. Weak in retry loops, strong for one-shot logic.
+- **False sharing** — two independent atomics on one 64B line: MESI ownership is per-*line*, so each write invalidates the other core's copy → coherence ping-pong. Fix `alignas(hardware_destructive_interference_size)`. Performance bug, not correctness.
 
-### `compare_exchange_weak` — spurious-failure direction backwards — 2026-07-10
-- **Wrong:** Said weak "permits true when the value has changed." Backwards: weak permits **spurious FALSE** — failing without exchanging *even when current == expected*. Never a wrong true. Exists because LL/SC reservations (ARM/POWER) can be lost incidentally; surfacing that as failure keeps the primitive cheap. Weak in retry loops (spurious false = one extra iteration); strong for one-shot logic.
+**Locks & guards (07-26 quiz, 6 misses):**
+- **"Contended" means another thread already holds the lock.** Uncontended ≈ 20 ns, a single atomic RMW entirely in userspace. Contended = futex syscall + park + context switch, ≈ 1–10 µs. glibc spins adaptively before parking.
+- **`lock_guard` vs `scoped_lock`** — identical codegen for a single mutex (`scoped_lock` has a single-mutex partial specialization). The only reason to keep `lock_guard` around: a **zero-argument `scoped_lock` compiles and locks nothing**.
+- **Tag arguments** — `lock_guard`: `adopt_lock` only, tag **last**. `scoped_lock`: `adopt_lock` only, tag **FIRST**. `unique_lock`: `adopt_lock` / `defer_lock` / `try_to_lock`.
+- **`unique_lock` movability** — needed for returning a lock from a function, storing one in a container, and `cv.wait`. UB: moving one to another thread, whose destructor then unlocks from a non-owning thread.
+- **`scoped_lock` with multiple mutexes uses `std::lock`** (try-and-back-off) → **order doesn't matter**; it exists to prevent multi-mutex deadlock. `lock_guard` is the order-dependent one.
+- ✅ **Sharp catch (07-26):** `std::scoped_lock<std::mutex>(m);` parses as a **declaration of a variable named `m`** that shadows the mutex and locks nothing — sharper than the usual "temporary dies immediately" folklore, which needs brace syntax.
 
-### Release/acquire happens-before — 2026-07-10 (pending, mid-ch5)
-- **Couldn't answer (expected).** Target answer: release-store/acquire-load pair = *synchronizes-with* → *happens-before*: everything sequenced before the release (incl. non-atomic `data=42`) is visible after the acquire observes the store. Both relaxed: flag itself race-free, but the edge vanishes → non-atomic `data` access is a **data race → UB** — not "stale read." That distinction is the interview discriminator. Revisit post-ch5.3.
+**Threads & futures:**
+- **An exception escaping a thread's entry function calls `std::terminate`** (07-26, didn't know). To capture it: `std::async` / `packaged_task` / `promise`, then rethrow at `.get()`.
+- **`hardware_concurrency()` is unreliable** (07-26, couldn't justify) — it's a hint, may return **0**, counts SMT threads not physical cores, ignores cgroup/container CPU quota, ignores affinity masks.
+- **`std::thread` argument copies** (partial) — args are **decay-copied then passed as rvalues**, so binding to `std::string&` **fails to compile**; `const std::string&` compiles and silently binds to the internal copy. Use `std::ref` for genuine by-reference.
+- **`jthread`** (partial) — gave auto-join, missed **`stop_token` cooperative cancellation**.
+- **`std::async` default policy** (half) — had the famous half ✅ (the returned future's destructor blocks). Missed: no policy = `async|deferred`, and a **deferred task runs only on `.get()`/`.wait()`** — never call get, work never executes. Fire-and-forget needs explicit `std::launch::async`.
+- **Condition variables** (partial) — had spurious wakeups + the notify-while-holding trade-off. Missed that the predicate loop also guards **missed/stolen wakeups**. `wait` **atomically releases the mutex and sleeps**, re-acquires before returning; the predicate always runs under the lock.
+- **`priority_queue` with a capturing-lambda comparator** (07-19) — declared without passing the lambda to the constructor. Capturing lambdas are **not default-constructible**, even in C++20; the comparator object must be passed in.
 
-### Condition variables: second failure mode + wait mechanics — 2026-07-10
-- **Partial:** Got spurious wakeups + the notify-while-holding trade-off (waker wakes waiter into a held lock). Missed: predicate loop also guards **missed/stolen wakeups** (notify fires before wait; another thread consumes the condition between notify and wake) — checked before first sleep and after every wake. Correction: no "checks mutex is unlocked" — `wait` **atomically releases the mutex and sleeps**, re-acquires before returning; predicate always runs under the lock.
-
-### False sharing — 2026-07-10 (didn't know; top-3 HFT concurrency question)
-- Two independent atomics on one 64-byte line: MESI ownership is per-*line*, so each core's write invalidates the other's copy → coherence ping-pong, every increment pays a round-trip instead of an L1 hit. Fix: `alignas(std::hardware_destructive_interference_size)` (in practice 64) or padding. Performance bug, not correctness bug. Williams ch8.
-
-### `std::async` default policy: deferred may never run — 2026-07-10 (half)
-- Had the famous half ✅: async-returned future's **destructor blocks** (unique among futures; dropping the future = synchronous call). Missed: no policy = `async|deferred`, and a **deferred task runs only on `.get()`/`.wait()`** — never call get → work never executes. Fire-and-forget needs explicit `std::launch::async`.
+**SPSC queue build (07-26):**
+- **`if (headCurr = tailCurr)`** — assignment instead of `==`. The condition evaluates `tailCurr`, so `pop` spuriously returns nullopt whenever tail ≠ 0, and reads an empty queue's slot when tail == 0. Caught free by `-Wall` (`-Wparentheses`) — **compiler warnings are not yet part of the build habit.**
+- **Atomic snapshot hygiene** — loaded `tailCurr`/`headCurr` into locals, then used the atomics directly (`(tail_+1) % N`, `buf_[tail_]`); each such use is an implicit **seq_cst** load and the snapshot locals sat dead. Benign here only because each index has a single writer; a real re-read bug in MPMC. **Rule: load each atomic once per operation into a local and use only the local.**
 
 ## Theme: Systems-Level Performance & Numbers
 
-*Flagged in the 152-question session (2026-06-19) as a whole category: "you understand *why* things are fast/slow but can't produce the numbers or specifics." Memorize these cold.*
+- **Cache latencies (MEMORIZE):** L1 ~4 cyc, L2 ~12, L3 ~40, RAM ~200. Branch mispredict ~15–20 cyc. ~50 L1 hits per RAM access. *Third consecutive fail — pure recall item.*
+- **Stack vs heap at the CPU level**, **`vector` out of capacity on `push_back`**, **`new` vs placement new** — flagged unsure, see the vector/allocator theme above.
+- ✅ `sizeof` of a class with one virtual + one int = 16 (vptr + int + padding). `sizeof("hello")` = 6 (includes `'\0'`). C array decays to a pointer when passed; `std::array` passes as an object and keeps its size.
 
-### Cache latency numbers (didn't know — MEMORIZE)
-- L1 hit ~4 cycles, L2 ~12, L3 ~40, main memory ~200. A RAM miss is ~50× an L1 hit. This single fact drives every container/layout decision in HFT.
+## Theme: Precise Semantics (imprecise-answer cluster)
 
-### Branch misprediction cost (didn't know)
-- ~15–20 cycles on modern x86 (pipeline flush + restart). Motivates `[[likely]]`/`[[unlikely]]`, branchless code, PGO.
+- **`inline`** — permits multiple identical definitions across TUs (an ODR/linkage keyword); it is *not* a request to inline.
+- **`std::move`** — an unconditional cast to rvalue reference. Moves nothing itself.
+- **`mutable`** — allows modification inside a `const` member function (caches, mutexes); the lambda meaning is separate.
+- **RAII** — resource lifetime tied to **object** lifetime, released in the destructor at scope exit.
+- **Copy elision vs RVO vs NRVO** — elision is the general permission; RVO (returning a prvalue) is **guaranteed** since C++17; NRVO (returning a named local) remains optional.
+- **`unique_ptr` in a vector** — movable but not copyable, so the vector must move on realloc; the move ctor must be `noexcept` or it copies (impossible) / falls back.
+- **`throw;` vs `throw e;`** — bare `throw;` rethrows the current exception preserving its dynamic type; `throw e;` **slices** to the static type.
+- **`static` at namespace scope** = internal linkage.
 
-### Stack vs heap at the CPU level — (Q120, "unsure")
-- Stack alloc = a subtraction on `rsp`, one instruction, ~free. Heap = `malloc`/`operator new`: walks free lists, may syscall (`mmap`/`brk`), takes locks in MT. Orders of magnitude slower + unpredictable → why HFT avoids heap on the hot path.
+## Theme: Standard Library Gaps
 
-### `std::vector` out of capacity on `push_back` — (Q122)
-- **Wrong:** Said "heap overflow."
-- **Correct:** It **reallocates** — new buffer (~2× capacity), move/copy elements over, destroy old, free old. Invalidates all iterators/pointers/refs. Why `reserve()` matters, and where `noexcept` move vs copy is chosen.
+- **`std::variant` vs `union`** — variant is type-safe and knows its active alternative; a raw union does not. (Deeper variant study still TODO.)
+- **`std::array<int,0>`** — valid, `size()==0`, `data()` unspecified, `begin()==end()`; empty `vector<int>` is heap-free too but dynamic.
+- **Hash map collision strategies** (partial) — separate chaining (what libstdc++ `unordered_map` mandates via bucket + node pointers) vs open addressing (linear/quadratic probing, robin hood); the standard's iterator/reference-stability guarantees force chaining.
+- **`std::terminate` vs `std::abort`** — `terminate` is the handler invoked on unhandled exception / throwing dtor / escaping thread exception; it *calls* `abort` by default but is user-replaceable.
+- **Derived type without RTTI** — a manual type tag / enum in the base, or CRTP; not `dynamic_cast`.
+- **Strict weak ordering** — a `<=` comparator in `std::sort` is **UB**, not merely wrong (can run off the end of the range).
+- **`unordered_map` custom key** — needs both a `std::hash` specialization (or functor) **and** `operator==`; the hash/equality invariant is: equal keys must hash equal. Violating it silently loses lookups.
+- **`unique_ptr` deleter storage** — EBO (empty base optimization), not type erasure; that's why a stateless-deleter `unique_ptr` is pointer-sized while `shared_ptr` type-erases in the control block.
+- **`make_shared` vs `shared_ptr(new T)`** — one allocation instead of two, better locality; downside is that the object's storage cannot be freed until the last **weak_ptr** dies.
+- **`volatile`** — for memory-mapped I/O and signal handlers; it prevents *compiler* elision/reordering of accesses but provides **no** atomicity and **no** cross-thread ordering. Not a threading tool.
 
-### `new` vs placement new — (Q125)
-- **Wrong:** Said `new` is slower "because it constructs objects as well" (implying placement new doesn't construct).
-- **Correct:** Both construct. `new` = **allocate + construct**; placement new = **construct only** at memory you already own. `new` is slower because of the *allocation* step (heap walk, possible syscall, locking), not construction.
+## Theme: Integer Semantics & Conversions
 
-### `sizeof` a class with one virtual + one int — (Q121, correct)
-- vptr (8) + int (4) + 4 padding = 16 on x86-64. ✅
+- **Signed/unsigned comparison: conversion goes UP** — the signed operand converts to unsigned, so `-1 < v.size()` is **false**. See §1.1 #1.
+- **Integral promotion** — `uint8_t + uint8_t` is an **`int`**; small types promote before arithmetic.
+- **`auto` deduces the narrow type** (07-25) — `auto r = arr[i] - arr[i-1];` gives `int`, so `r * r` overflows **before** any widening at the assignment. Widening at the assignment does not rescue an `int * int` product. Declare `long long r` explicitly.
+- **Unsigned wraparound in loop bounds** (07-25) — `for (int i = 0; i < d.size() - 2; ++i)` — `size()` is unsigned, so `size()-2` wraps for n ≤ 1. Fix: `int n = d.size(); i + 2 < n`. The boundary is n ≤ 1, not n < 3 (n = 2 gives exactly 0).
+- **Negative modulo** — see §1.1 #5.
 
-### `sizeof("hello")` — (152-session)
-- **Wrong:** Said 8 (thought pointer).
-- **Correct:** It's **6**. String literals are `const char[N+1]` arrays, not pointers; `sizeof` doesn't decay arrays.
+## Theme: OS & Systems Fundamentals
 
-### C array vs `std::array` passing — (Q50)
-- **Wrong:** Had the decay direction backwards.
-- **Correct:** The **C array** `int arr[N]` decays to `int*`, losing size. `std::array<int,N>` is a real object — `N` is part of the type, retains size, can be passed by ref / copied / returned.
+- **`fork()` return values** (07-25) — returns the **child's PID to the parent**, **0 to the child**, **−1 to the parent** on failure. `getppid()` is what returns the parent's PID.
+- **Dangling pointer vs memory leak** (07-25) — defined "dangling" as unfreed memory whose pointer went out of scope; that is a **leak**. A **dangling pointer** is a live pointer whose pointee's lifetime has ended: use-after-free, a pointer/reference to a destroyed local, an iterator invalidated by reallocation. *Leak = memory alive, pointer gone. Dangling = pointer alive, memory gone.*
+- **Unsynchronized concurrent writes to a global** (07-25 MCQ) — picked "overwritten by whichever thread called the function last." Correct: **the final value is unpredictable** — call order does not determine store order, a read-modify-write can lose an update entirely, and an unsynchronized concurrent write is a **data race (UB)**, not well-defined last-writer-wins.
 
-## Theme: Precise Semantics (imprecise-answer cluster from 152-session)
+## Theme: Custom Container Builds (vector ×2, shared_ptr) — 07-25, 07-26
 
-*The consistent failure mode flagged: "80% answers where interviewers want 100%." Each is a 5-minute fix; there are just many.*
+**Growth from zero — 🔁 the standing item (both builds, two days apart):**
+- 07-25 (debug round, broken Vector): `capacity_ = capacity_ * 2` stays 0 for a default-constructed vector → `new int[0]`, then `data_[size_++] = v` writes out of bounds on the **first** `push_back`. Fix: `capacity_ = capacity_ ? capacity_ * 2 : 1`.
+- 07-26 (own implementation, **recurrence**): `if (size_ >= capacity_ - 1)` — `capacity_ - 1` underflows to `SIZE_MAX` when `capacity_ == 0` (moved-from vector, or `shrink_to_fit` on empty), so growth never triggers and placement-new writes through `nullptr`; `capacity_ * 3` is also still 0. Fix: `if (size_ == capacity_) reserve(capacity_ ? capacity_ * 2 : 1);`
+- **Second occurrence in two days → standing checklist item.**
 
-### `inline` — actual meaning
-- **Wrong:** "allows static declarations as definitions" / thought it's about optimization.
-- **Correct:** It's an **ODR mechanism** telling the linker to merge identical definitions across TUs. Nothing to do with inlining/optimization directly. C++17 extended it to variables (`inline` variables).
+**Copy assignment (07-25 debug round — declared it correct, missed all three defects):**
+1. `memcpy(data_, other.data_, other.size_)` copies `size_` **bytes**, not `size_ * sizeof(int)`.
+2. The old `data_` is never deleted → leak on every assignment.
+3. No self-assignment guard / copy-and-swap.
 
-### `std::move` — precise
-- **Imprecise:** "casts to rvalue."
-- **Precise:** an unconditional `static_cast<T&&>`. Generates **zero** assembly; the move ctor/assignment does the real work.
+**Destruction & bounds (07-26):**
+- `pop_back()` wrote `data_[size_].~Element(); size_--;` — destroys the slot **one past** the last live element (uninitialized memory) and never destroys index 0. Confirmed under ASan: garbage dtor call then SEGV. Correct: `data_[--size_].~Element();` plus an empty guard (otherwise `size_` wraps to SIZE_MAX).
+- `at()` used `if (index > size_)` instead of `>=`, so `at(size())` returns garbage instead of throwing.
 
-### `mutable` — primary use
-- **Gap:** Only knew the lambda use.
-- **Correct:** Primary use is allowing modification of a class member inside a `const` method (e.g. `mutable std::mutex`, cached values). (Also: not needed for by-reference lambda capture — see Lambdas theme.)
+**Syntax & signatures (07-26):**
+- Wrote `&vector operator=(...)` instead of `vector& operator=(...)`; the error cascades so every later member sees `vector` as the template argument type.
+- Copy-and-swap parameter taken as `const vector other` — `std::move` on a const by-value param yields `const vector&&`, which cannot bind to `vector&&`. **Copy-and-swap takes its parameter non-const, by value.**
 
-### RAII — scope
-- **Imprecise:** Scoped it to smart pointers only.
-- **Correct:** General principle of tying *any* resource's lifetime to object lifetime — mutexes, file handles, sockets, DB connections.
+**Design-level misconceptions (07-26):**
+- `move_if_noexcept` used inside a **copy** path — safe only by accident because the source was const.
+- Move ctor / move-assign not marked `noexcept`, which makes the class's own `move_if_noexcept` fall back to copying when `Element` is itself this vector.
+- `reserve` allowed to **shrink** and had no exception guarantee — a throwing element ctor leaks the temp buffer *and* the already-constructed elements.
+- `deallocate(nullptr, 0)` on every construction — see the allocator theme.
 
-### `constexpr if` false branch — (repeat of if-constexpr gap)
-- **Missed:** The false branch is **completely discarded** and need not even compile for that instantiation. This is what replaced many SFINAE patterns.
-
-### Copy elision vs RVO vs NRVO
-- **Imprecise:** "no copy is made" but couldn't distinguish.
-- **Correct:** Copy elision is the umbrella. **RVO** = prvalue return, guaranteed since C++17. **NRVO** = named local return, still optional/non-guaranteed.
-
-### `unique_ptr` in a vector
-- **Imprecise:** Said can't copy *or* move.
-- **Correct:** Can't **copy** (right). But move works — so `sort`, `emplace_back`, moving out, anything move-only is fine.
-
-### `throw` vs `throw e` (rethrow)
-- **Gap flagged:** `throw;` rethrows the current exception preserving its dynamic type; `throw e;` copies and can **slice** a polymorphic exception. Use bare `throw;` to rethrow.
-
-### `static` at namespace scope = internal linkage — 2026-07-10
-- **Half-known:** Knew anonymous namespace gives internal linkage; unsure about `static` — it means **exactly the same thing** at namespace scope. Differences: anonymous namespace also covers **types** (can't `static` a class), one construct for everything → recommended style; `static` = legacy special case for functions/variables.
-
-## Theme: Standard Library Gaps (from 152-session)
-
-### `std::variant` vs `union` — (didn't know variant)
-- `union`: no type safety, you track the active member, reading the wrong member is UB. `std::variant`: type-safe tagged union, knows its active type, throws `std::bad_variant_access` on wrong access, works with `std::visit`. Cost: stores a type index → slightly larger. Dispatch on type via `std::visit`.
-
-### `std::map::operator[]` insertion danger
-- **Correct rule to lock:** `operator[]` **silently inserts** a default-constructed value if the key is missing — so a bare read `m[key]` mutates the map, and `operator[]` doesn't exist on a `const map`. Use `at()` (throws) or `find()` (iterator) for lookups. **This has bitten in live coding** — see §2.1-C (default-inserted 0 corrupting a min-accumulation).
-
-### `string_view` lifetime danger
-- `std::string_view sv = std::string("temp");` dangles — the temporary dies at the semicolon and `sv` points to freed memory. `const std::string&` extends the temporary; `string_view` does **not**.
-
-### `std::array<int,0>` vs empty `std::vector<int>` — (Q99)
-- **Imprecise:** Said the vector "maintains a pointer to heap memory."
-- **Correct:** An empty `vector` typically does **not** heap-allocate until first insertion (just three null pointers). Real difference: `array<int,0>` is a compile-time fixed empty container that can never hold anything; the vector can grow.
-
-### Hash map collision strategies — (Q97, partial)
-- Two approaches: **chaining** (list per bucket — simple, handles high load factor, but pointer chasing kills cache) vs **open addressing** (probe for next slot — cache-friendly contiguous array, but degrades at high load factor, deletion needs tombstones). HFT answer: open addressing + linear probing, keep load factor ~0.5–0.7.
-
-### `std::terminate` vs `std::abort` — (Q123, didn't know)
-- `terminate` calls the terminate handler (default → `abort`), customizable via `set_terminate` (one hook, e.g. logging). `abort` immediately kills the process, no destructors / `atexit`.
-
-### Determining derived type without RTTI — (Q124, didn't know)
-- Store a **type enum/tag** in the base, set in each derived ctor, compare the tag. `dynamic_cast` is too slow for HFT; an int compare is ~1 cycle.
-
-### Strict weak ordering — (didn't know)
-- `std::sort`'s comparator must be irreflexive (`comp(a,a)` false), asymmetric, transitive. Using `<=` instead of `<` violates irreflexivity and is **UB**, not just wrong output. Classic trap.
-
-### `std::unordered_map` custom key
-- Needs **both** a hash (`std::hash` specialization or template param) **and** `operator==`. Rehash invalidates iterators but not references/pointers to elements.
-
-### `volatile` — precise (pre-concurrency framing)
-- Forces the compiler not to optimize away a variable's reads/writes and not to reorder *that variable's* accesses. **Not** sufficient for threading: no atomicity, no cross-thread ordering. Use `std::atomic`. (Full thread version in Concurrency theme once studied.)
+**Earlier cluster (May–June):** `Element` vs `T` and `forward<Element>` vs `forward<Args>` [A]; `size_`/`capacity_` with no NSDMIs; missing const `operator[]`; missing deallocation in `reserve`/dtor; dead try-catch around a noexcept dtor. shared_ptr: control block deleted while holding its own mutex (UB); refcount race between pointer copy and increment → `atomic<size_t>`.
 
 ---
-
-### `unique_ptr` deleter storage: EBO, not type erasure — 2026-07-10
-- **Partial:** Got the determinant (stateless vs stateful deleter), wrong mechanism ("type erasure"). `unique_ptr<T,D>`'s deleter is in the **type**; empty case is free via **EBO** (compressed pair / `[[no_unique_address]]`). Type erasure is `shared_ptr`'s deleter (control block — never changes `sizeof(shared_ptr)`) and `std::function`.
-
-### Hash/equality invariant for `unordered_map` keys — 2026-07-10
-- **Missed both halves:** unordered needs hash **and equality** (hash can't resolve bucket collisions). Invariant: **`a == b` ⇒ `hash(a) == hash(b)`** — violate it (hash covers a field `==` ignores) and equal keys land in different buckets: inserts succeed, lookups return `end()`. Silent. `map` analog: `==` must agree with comparator-equivalence.
-
-### `make_shared` vs `shared_ptr(new T)` — mechanism + weak_ptr downside — 2026-07-10
-- **Partial:** One-allocation-vs-two right; "T created then moved in" wrong — **nothing moves**, `new T` constructs at final address, ctor allocates a separate control block. Downside: fused allocation means the object's **storage can't be freed until the last `weak_ptr` dies** (object destroyed at strong==0, memory held by control block).
-
-### `std::variant` seeds (attached to declared TODO) — 2026-07-10
-- `variant<int,string> v = "hello"` → holds **string** now; the historical trap was `variant<string,bool>` picking **bool** (pointer→bool built-in conversion beat user-defined) — fixed C++20 P0608. `get<T>` wrong alternative → throws `bad_variant_access`; `get_if<T>(&v)` → nullptr (takes a POINTER). Union-less state: **`valueless_by_exception`** (type-changing assignment threw mid-construction; `index() == variant_npos`) — a variant can be genuinely empty, a union can't.
-
-## Theme: Integer Semantics & Conversions — 2026-07-10
-
-### Signed/unsigned comparison: conversion goes UP — 2026-07-10
-- **Wrong:** Guessed `size_t` converts to int → said `-1 < v.size()` is true. Backwards: **signed converts to unsigned** when unsigned rank ≥ signed rank → `x` becomes 2^64−1 → **false**. Mnemonic: *unsigned is contagious upward*. This is priority item #1 in a different costume; reason `-Wsign-compare` exists.
-
-### Integral promotion: `uint8_t + uint8_t` is an `int` — 2026-07-10
-- **Partial (named the rule, didn't commit):** anything smaller than `int` promotes first → `auto c = a + b` is **`int` holding 300**, no wrap. `uint8_t c = a + b` then narrows: 300 % 256 = **44** (unsigned narrowing well-defined). The "obvious" wraparound answer is wrong twice.
 
 # Part 2 — LeetCode
 
-## 2.WEAK — Weak Areas & Study Priority (consolidated 2026-07-03)
+## 2.WEAK — Weak Areas & Study Priority
 
-Ordered by ROI for the Aug 2026 application cycle. ⚠️ = self-identified; ◆ = surfaced from ledger evidence.
+⚠️ = self-identified; ◆ = ledger evidence.
 
 **Paradigm gaps (highest ROI first):**
-1. ⚠️◆ **Greedy category recognition** — executing greedy is fine; recognizing *which* of the 13 categories and proving correctness fast is the gap. Weakest sub-type: regret/heap greedy (LC 871 family) — **confirmed 07-06: LC 630 revisit stalled despite 871 install; retention, not just recognition**. Keep forgetting the taxonomy. Broadest gap, appears everywhere.
-2. ⚠️◆ **Bitmask DP (submask/assignment flavor)** — stalled on LC 1723 (Jun) and LC 1655 (Jul), same "what do the bits index" stall. Fix in progress. Drill set scoped: **1655 → 698 → 2305** (same submask move ×3). Distinguish single-bit-transition (2^m·m) from whole-submask-transition (3^m, needs `(sub-1)&mask` loop).
-3. ◆ **Fenwick / segment tree + coordinate compression** (one bundle) — largely untouched; unlock the same P90 problems. LC 2839 deferred on this; LC 327 (Count of Range Sum) KIV'd for lack of BIT/merge-sort-counting; **LC 2407 (07-06) KIV'd at the same wall** — identification complete, implementation blocked on the structure. Near-perfect first drill problem when this is picked up.
-4. ⚠️ **Tries** — untouched, narrower, faster to learn once. LC 421 → 1707 queued as the drill pair (07-06).
-4b. ◆ **Permutation-counting DP** — new, surfaced 07-06 (LC 1866): insertion-by-rank + rank-bijection unknown. Small family, cheap to close: drill 629 → 920 → 1359. Rarer in HFT OAs than #1–3 — take for momentum, not priority.
+1. ⚠️◆ **Greedy category recognition** — execution is fine; recognizing *which* category and proving it fast is the gap. Weakest sub-type was regret/heap greedy — **now improving: LC 1642 (07-29) regret-greedy identified solo and solved clean.** Retention was the old failure (630 stalled despite the 871 install).
+2. ◆ **Difference array + prefix sum retrieval** — **NEW, promoted 07-29.** Not a knowledge gap: both are catalogued (recognition-catalog #30, the June prefix-sums writeup) and both re-derive fine once named. The failure is **retrieval** — LC 2381 was worked with sorted-endpoint binary search before the diff array surfaced. Different failure mode from a bug class; the fix is a rehearsed trigger phrase, not a checklist item. See §2.3.
+3. ⚠️◆ **Bitmask DP (submask/assignment flavor)** — stalled on 1723 (Jun) and 1655 (Jul), same "what do the bits index" stall. Drill set **1655 → 698 → 2305**. Deferred by request in recent sessions.
+4. ◆ **Fenwick / segment tree + coordinate compression** (one bundle) — largely untouched; unlocks the same P90 problems. 2839, 327, 2407 all KIV'd at this wall.
+5. ⚠️ **Tries** — untouched; 421 → 1707 queued. Explicitly deferred 07-2x in favour of dp/prefix/greedy/array/window/graph.
+6. ◆ **Cyclic / wraparound index handling** — **promoted after three hits**: findMinimumShifts (cyclic row shifts), the Squarepoint torch-cone recall, and the alphabet rotation in 2381. Two named reframes now installed (see §2.3).
+7. ◆ **Permutation-counting DP** — small family, cheap to close: 629 → 920 → 1359.
 
-**Cross-cutting skills (not paradigms, but recurring point-losers):**
-5. ◆ **Axis-swap reframe** — the dominant *identification* failure (§2.2): subarrays→elements, values→indices (LC 2555, 2818, 828). Stalls when the problem needs flipping what you iterate over.
-6. ◆ **Recurrence transcription** — category B, highest-frequency bug class (7 logged, 2 survived review). Correct math, wrong code. Countermeasure: hand-trace one 4-elem example before running.
-7. ◆ **State-dimension sizing** — when to add a dimension (LC 3977 node vs (node,power); 813-vs-1043 what k bounds). Distinct from knowing the paradigm.
-8. ◆ **Reconstruction / traceback** — DPs asking for the actual answer not its value (LC 1723 parent array). General weak spot.
-9. ◆ **Type-width discipline** — category G, recurring (LC 2528 today). Constraint-glance pre-pass in §2.3.
-10. ◆ **Prefix-sum ↔ subarray-sum link + boundary (n+1) indexing** — needs prompting to see; resisted fencepost convention repeatedly (Jun 26/28).
+**Cross-cutting point-losers:**
+- ◆ **Signed/unsigned discipline** — the single most frequent item in the whole ledger; recurred in *every problem* of several sessions. See §1.1 #1.
+- ◆ **Axis-swap reframe** — the dominant identification failure: subarrays→elements, values→indices, array→occurrence-space (2555, 2818, 828, 2831).
+- ◆ **Recurrence transcription** (category B) — correct math, wrong code. Hand-trace one 4-element example.
+- ◆ **State-dimension sizing** — when to add a dimension (3977 `(node,power)`; 787 `[node][stops]`; 1631 minimax distance). *Improving: 787 and 1631 both framed correctly first try.*
+- ◆ **Type-width discipline** (category G).
+- ◆ **Reconstruction / traceback** — DPs asking for the answer, not its value.
 
-**Explicitly DEPRIORITIZED (know they exist, don't drill — low/zero ROI for HFT):**
-digit DP, convex-hull-trick / Li Chao, suffix automata / heavy string algos, most interval DP.
+**Deprioritized (know they exist, don't drill):** digit DP, convex-hull trick / Li Chao, suffix automata, most interval DP.
 
-**Strengths (for calibration — these were gaps, now solid):** monotonic-stack contribution counting (Jun), Kadane recognition, binary-search-on-answer, exchange-argument skeleton, Dijkstra habits (post-3977).
-
----
+**Strengths (calibration):** monotonic-stack contribution counting, Kadane, binary-search-on-answer, exchange-argument skeleton, Dijkstra habits, sliding window (1838 "standard"), circular-array reframes.
 
 ## 2.0 How to read this part
 
-- **§2.1** is the system of record for *execution* bugs: categories with running counts and every logged example. New bug → find its category → increment count → add the one-liner.
-- **§2.2** is the system of record for *identification* failures: reached for the wrong approach, stalled on the reframe, or under-dimensioned the state. This is a different skill from §2.1 and is tracked separately on purpose.
-- **§2.3** = idioms/checklists to drill (the reusable fixes).
-- **§2.4** = chronological per-problem log (the raw data feeding everything above).
-- **§2.5** = the pre-submit checklist derived from the taxonomy. Run it every time.
+§2.1 = *execution* bugs (categories + counts + examples). §2.2 = *identification* failures (wrong approach / stall / under-dimensioned state) — a different skill, tracked separately. §2.3 = idioms & checklists. §2.4 = per-problem log. §2.5 = pre-submit checklist.
 
-**Headline diagnosis (stable across ~2 months):** algorithmic derivation is fast and usually correct; the bug mass is in **transcription fidelity** (correct math → incorrect code) and **fixed-convention recall** (comparator directions, argument orders, index domains). Identification failures cluster around **axis-swap reframes** (values→indices, subarrays→elements) and **state dimensioning**.
+**Headline diagnosis (stable ~3 months):** algorithmic derivation is fast and usually correct; the bug mass is **transcription fidelity** (correct math → incorrect code) and **fixed-convention recall** (comparator directions, argument orders, index domains, signed/unsigned). Identification failures cluster on **axis-swap reframes**, **state dimensioning**, and — newly — **retrieval of already-catalogued techniques**.
 
 ## 2.1 Bug Taxonomy — running counts + examples
 
-Historic baseline distribution (June 20 taxonomy doc): wrong identifier ~35%, base case/init ~25%, placement/ordering ~15%, missing operations ~10%, lifetime/resource ~8%, syntax ~7%. Counts below are **logged instances** from mined sessions (May 18 – Jul 13); update them as new bugs land.
-
-**Format-sensitivity note (2026-07-13):** first spec-implementation (OA-simulation) session showed the distribution is format-dependent. E/G (boundary + type mechanics) transferred fully intact; B/C/D went dormant (no derived formulas, DP base cases, or index-domain translation in the format); F exploded (constraint-dense prose) — historical F count was likely suppressed by an algorithm-heavy problem diet, not low propensity. Optiver OA contains both formats: checklist must cover both halves.
-
-| ID | Category | Count | Trend | One-line signature |
+| ID | Category | Count | Trend | Signature |
 |---|---|---|---|---|
-| A | Wrong identifier / variable mix-up (incl. min↔max swap) | 7 | 🔁 steady | Right algorithm, wrong name plugged in |
-| B | Formula inversion / transcription error | 8 | 🔴 highest-risk | Derivation correct in comments, coded term flipped — **silent wrong answer** |
-| C | Base case / initialization | 11 | 🔺 2× on Jul 6 | Only the one truly-free state may be 0; everything else unreachable — allocation sizing included |
+| A | Wrong identifier / variable mix-up | 7 | 🔁 steady | Right algorithm, wrong name plugged in |
+| B | Formula inversion / transcription | 9 | 🔴 highest-risk | Derivation right in comments, coded term flipped — **silent wrong answer** |
+| C | Base case / initialization | 12 | 🔺 | Only the one truly-free state may be 0; allocation sizing included |
 | D | Off-by-one / index-domain translation | 6 | 🔁 steady | 0-indexed input vs 1-indexed dp; boundary-vs-element indexing |
-| E | Ordering / direction of operations | 10 | 🔴 3× on Jul 13 — three sessions rising | Pop direction, comparator direction, read-before-pop, missing tie-break, guard asymmetry |
-| F | Missing operation / dropped constraint | 9 | 🔴 4× on Jul 13 — format-amplified (see note) | A term or requirement from the derivation never makes it into code |
-| G | Numeric type / sentinel / overflow / precision | 11 | 🔴 2× Jul 7, 2× Jul 13 | int*int, INT_MIN-as-LLONG-sentinel, double::min(), float division, int accumulator/dist |
-| H | Variable shadowing | 1 | — | `int l = mid` inside a loop re-declares instead of assigns |
-| I | Over-engineering / wrong complexity or memory class | 7 | 🔁 steady | Extra state, redundant containers, rescans, memo where none needed |
-| J | API convention misuse (fixed calling conventions) | 5 | 🔁 4+ sessions | `lower_bound`/`upper_bound` comparator argument order |
-| K | State hygiene across calls | 1 | — | Mutated shared state leaks into the next feasibility call / test case |
-| L | Parameter/reference propagation | 1 | new Jul 13 | State fails to propagate: out-param taken by value, callee mutates its own copy |
+| E | Ordering / direction of operations | 14 | 🔴 rising | Pop direction, comparator direction, read-before-pop, missing tie-break, guard asymmetry |
+| F | Missing operation / dropped constraint | 11 | 🔴 format-amplified | A term or requirement never makes it into code |
+| G | Numeric type / sentinel / overflow / precision | 14 | 🔴 **top-2 with E** | int*int, `auto` narrowing, unsigned wrap, sentinel width, float division, negative modulo |
+| H | Variable shadowing | 2 | — | `int l = mid` inside a loop; structured binding shadowing a parameter |
+| I | Over-engineering / wrong complexity or memory class | 11 | 🔺 | Extra state, redundant containers, rescans, memo where none needed |
+| J | API convention misuse | 5 | 🔁 4+ sessions | `lower_bound`/`upper_bound` comparator argument order |
+| K | State hygiene across calls | 1 | — | Mutated shared state leaks into the next feasibility call |
+| L | Parameter/reference propagation | 1 | — | Out-param by value; callee mutates its own copy |
+| M | Typo class the compiler would have caught | 1 | new 07-26 | `if (a = b)` for `==`; `-Wall`/`-Wparentheses` not in the build habit |
 
-### A — Wrong identifier / variable mix-up (7 logged)
-- LC 862: wrote `prefix` where the variable was `prefixSum`.
-- LC 1340: `min` instead of `max` for the left jump boundary (min/max swap).
-- LC 3956: loop variable `m-1` where `k-1` was meant.
-- LC 1626: transition `dp[j] + dp[i]` instead of `dp[j] + players[i].score` — compounded an in-progress dp value into itself.
-- Teleport-grid Dijkstra: final answer loop read `distances[...][k]` (loop-invariant!) instead of `[i]`.
-- Custom `vector<T>`: used `Element` where the template param was `T`; `std::forward<Element>` instead of `std::forward<Args>` in `emplace_back`.
-- **Countermeasure:** dedicated 60-second post-coding pass checking *identifiers only*, no logic (installed 2026-06-23).
+**Format-sensitivity note:** the distribution is format-dependent. In spec-implementation (OA-simulation) format, E/G transfer intact, B/C/D go dormant (no derived formulas or DP base cases), and **F explodes** (constraint-dense prose). The historical F count was suppressed by an algorithm-heavy diet, not by low propensity. Optiver-style OAs contain both formats — the checklist must cover both halves.
 
-### B — Formula inversion / transcription error (7 logged) — HIGHEST RISK CLASS
-These produce plausible wrong answers with no crash and no obvious trace. Two have *survived a correction cycle*.
-- LC 862: derived `prefix[j] <= prefix[i] - k` in the comment, coded `k - prefix[i]` — persisted through one review pass.
-- LC 2444: counting term `r - max(lastMinK, lastMaxK) + 1` instead of `min(lastMinK, lastMaxK) - lastBadIndex` (wrong anchor *and* wrong extreme).
-- LC 828: recurrence subtracted **dp values** where the derivation called for **position gaps**.
-- LC 1092: stored the DP-table string by lexicographic comparison where length comparison was the criterion.
-- LC 3956: prefix-sum direction inverted in the transition.
-- LC 813: prefix-sum direction inverted again, independently, same day.
-- LC 2334: span of a stack minimum coded as `i - st[j] + 1`; the true left boundary is the previous stack entry (exclusive).
-- SquirrelResearch (07-13, spec-impl): expiry check compared a **duration to an absolute time** (`time_to_expire <= timestamp`); the rot instant is `hide_timestamp + time_to_expire`. Countermeasure: compute `expires_at` once at insert time — one place for the addition instead of every check site.
-- **Countermeasure:** for any counting/contribution formula, hand-trace ONE 4-element example before running (this is what caught 2444).
+### A — Wrong identifier / variable mix-up
+LC 862 `prefix` vs `prefixSum` · LC 1340 min↔max on the left jump boundary · LC 3956 `m-1` where `k-1` was meant · LC 1626 transition `dp[j] + dp[i]` instead of `dp[j] + players[i].score` · teleport-grid Dijkstra read a loop-invariant `distances[...][k]` instead of `[i]` · custom vector `Element` vs `T`, `forward<Element>` vs `forward<Args>` · findMinimumShifts (07-2x) named rows `m` / cols `n`, inverted vs the statement.
+**Countermeasure:** dedicated 60-second post-coding pass on *identifiers only*, no logic.
 
-### C — Base case / initialization (10 logged, 2 on Jul 6)
-- LC 1335: initialized `dp[i][0] = 0` for **all** i; only `dp[0][0]` is genuinely free — the rest must be unreachable (`INT_MAX`).
-- LC 115: base case `dp[0][j] = 1` for j > 0 (empty source can't produce a non-empty target — should be 0).
-- Mirror-path DP: two base-case misses — `grid[0][0]` being a mirror must not apply redirect logic (robot starts there, never "enters"), and a mirror on the destination cell ⇒ answer 0.
-- LC 992: frequency array sized without the `+1` (values go up to n), and `freq.clear()` used to "reset" — it zeroes the **size**, not the values (`assign(n+1, 0)` was needed).
-- LC 862: monotonic-deque loop started at i=0 while reading `prefixSum[i-1]` → indexed `[-1]`.
-- Custom `vector<T>`: `size_`/`capacity_` with no default member initializers → UB on first use.
-- `unordered_map` min-accumulation corrupted by `operator[]` **default-inserting 0** on a missing key — the phantom 0 wins every `min()`. (Direct LC manifestation of Part 1 §Standard-Library `map::operator[]` trap.)
-- LC 3977: `distances[source][power]` never initialized to 0 in a 2D `(node,power)` Dijkstra table. Combined with a `>=` staleness skip, the source skipped itself → whole search returned `{-1,-1}`. Base-case/init wearing a Dijkstra costume.
-- LC 1478: **over-broad base-case loop** — set `dp[1][j] = 0` for ALL j including `j=0` (one house, zero mailboxes = infeasible marked feasible) → DP covered the first house "for free," answer too small. `dp[1][j≥1]` was derivable from the recurrence anyway; hand-writing a second base-case row is where the slip crept in. Same genus as LC 1335's dp[i][0]=0.
-- SquirrelResearch (07-13): unguarded `caches_[location_id]` in a retrieval path — `map::operator[]` **default-constructed** a Cache whose `sz_` had no default member initializer → indeterminate member read. Direct recurrence of Part 1 §1.1 #9 AND of the custom-vector `size_`/`capacity_` entry below. 3rd occurrence → promote to reflex: `find()` before every map read; every scalar member gets a default member initializer.
-- LC 2218: **allocation-size flavor** — `vector<int>(k, 0)` inner dimension while the loop writes `dp[i][j]` up to `j=k`; needs `k+1`. Outer dimension was correctly `n+1` *on the same line* — inconsistent sizing within one allocation statement is the tell. Caught by ASan ("right of region", small offset); `.at()` substitution pinpoints the subscript instantly.
-- **Rule to lock:** *only the single truly-free state gets 0; everything else starts unreachable.* And *never bare-read a map inside a min/max fold.* And *always initialize the source cell of a Dijkstra dist table (2D too).* And *if a state is derivable from the recurrence, don't hand-write it as a base case.* And *after writing a DP allocation, immediately eyeball BOTH dimensions against the loop bounds as pairs (`j < k+1` ↔ `k+1` slots) — 10 seconds, kills the whole class.*
+### B — Formula inversion / transcription — HIGHEST RISK
+Silent wrong answers, no crash. Two have survived a correction cycle.
+- LC 862 derived `prefix[j] <= prefix[i] - k`, coded `k - prefix[i]`.
+- LC 2444 counting term used the wrong anchor **and** the wrong extreme.
+- LC 828 subtracted **dp values** where the derivation called for **position gaps**.
+- LC 1092 stored the DP string by lexicographic comparison; the criterion was length.
+- LC 3956 and LC 813 — prefix-sum direction inverted, independently, same day.
+- LC 2334 span coded `i - st[j] + 1`; the true left boundary is the previous stack entry (exclusive).
+- SquirrelResearch expiry compared a **duration to an absolute time**; the rot instant is `hide_timestamp + time_to_expire`. Countermeasure: compute `expires_at` once at insert.
+- **LC 1834** (07-2x) used `min(nextIdleTime, arrival)` for current time, **dragging the clock backwards**; the clock should only jump forward to the next arrival when the heap is empty.
+**Countermeasure:** hand-trace ONE 4-element example for any counting/contribution/transition formula before running.
 
-### D — Off-by-one / index-domain translation (6 logged)
-- LC 2008: after binary search returned 0-based rides index j, used `dp[j]` where the 1-indexed dp needed `dp[j+1]`. Cleaner idiom: `int pos = it - rides.begin()` used directly as dp index, `dp[0]=0` absorbing the no-predecessor case.
-- LC 1335: loop bound `j < min(i, d+1)` where `j <= min(i, d)` was correct.
-- LC 3956: deque window entry point `i-1` instead of `i-l`.
-- LC 862: result length `i - prefixIndex + 1` overcounts; with prefix indices the length is `i - j`.
-- LC 2334: exclusive-boundary span (length between two exclusive fenceposts is `right - left - 1`).
-- Prefix-sum DPs generally: repeated resistance to the **n+1 boundary-indexed convention** ("boundaries, not elements") — surfaced multiple times in the Jun 26 session before sticking.
+### C — Base case / initialization
+LC 1335 `dp[i][0]=0` for all i (only `dp[0][0]` is free) · LC 115 `dp[0][j]=1` for j>0 · mirror-path DP: start cell must not apply redirect logic, mirror on destination ⇒ 0 · LC 992 frequency array missing the `+1`, and `clear()` used as a reset (it zeroes the **size**, not the values — needed `assign(n+1,0)`) · LC 862 deque loop started at i=0 while reading `prefixSum[i-1]` · custom vector `size_`/`capacity_` without NSDMIs · `unordered_map` min-fold corrupted by `operator[]` default-inserting 0 (the phantom 0 wins every `min`) · LC 3977 `distances[source][power]` never zeroed · LC 1478 over-broad base row marked an infeasible state feasible · SquirrelResearch unguarded `caches_[id]` default-constructed a Cache with an indeterminate member · LC 2218 inner dimension `k` where the loop writes up to `j=k` (ASan heap-buffer-overflow) · **findMinimumShifts** (07-2x) accumulator declared `minPerColumn(n, LONG_MAX)` then **summed into** — signed overflow UB; a sum initializes to 0.
+**Rules:** only the single truly-free state gets 0, everything else starts unreachable · never bare-read a map inside a min/max fold · always initialize a Dijkstra source cell (2D too) · if a state is derivable from the recurrence, don't hand-write it as a base case · after any DP allocation, eyeball **both** dimensions against the loop bounds as pairs.
 
-### E — Ordering / direction of operations (7 logged, 2 on Jul 3, 2 on Jul 7)
-- LC 862: monotonic-deque pop direction reversed relative to the increasing invariant that was *correctly designed*.
-- Min-cost-path Dijkstra: PQ comparator `p1.second < p2.second` → **max-heap**; not a constant-factor bug, it degrades O(E log V) toward O(VE) → TLE.
-- LC 1334: relaxation skip used strict `<` (still pushes equal-cost duplicates); `<=` keeps the queue tight.
-- LC 2402: booked-rooms heap ordered by end time only — simultaneous frees need a **secondary tie-break on room number** (rule: lowest-numbered available room).
-- LC 2334: read `st.back()` as the left boundary **before** popping `curr` — the boundary read was `curr` itself. Pop first, then peek.
-- LC 3977: staleness skip written as `if (t >= dist[cell]) continue;` → evicts the **live** entry, not just stale duplicates. A popped entry carries the exact value written into its cell at push time, so equality means "owner," not "stale." Must be strict `>` (or equivalently `!=`, since a cell only ever decreases so stale ⇒ strictly greater). `>=` collapsed the whole search to `{-1,-1}` by skipping the source.
-- LC 2528: **initial consume-index alignment error [Ethan's]** — first draft consumed the diff array at the wrong index; corrected to `adjustments[leftBound]`. The correct pairing: a station placed at slot `i+r` (to cover deficient city i) covers `[i, i+2r]`; consuming at `leftBound = j-r` and cancelling at `i+r+1` makes the turn-off fire exactly at city `j = i+2r+1` (window-relative, not absolute-index). This is an alignment bug → **draw-the-array pre-pass** (§2.3) is the countermeasure. *(Note: Claude later wrongly claimed the corrected `leftBound` version was still buggy and pushed "consume at i"; a 200k stress test proved the `leftBound` version correct. So Ethan's final code was right; the initial draft was the miss.)*
-- LC 2528: cancellation accumulates with `-=` at the endpoint (`adjustments[i+r+1] -= add`), never `=`, so multiple cities cancelling at the same boundary don't overwrite each other. (Note: Ethan's passing submission already used `-=` correctly; general rule stands — diff arrays accumulate at endpoints.)
-- LC 1976 (07-07) — **RETENTION MISS of the 3977 entry above.** Applied `>=` to the pop-time staleness check (source skipped itself, dist=0 == distances[0]) when the `>=` belonged on the *relaxation* skip. The asymmetry to lock: **on pop, equal = owner → process (strict `>`); on relax, equal = no improvement → skip (`>=`).** Second occurrence of the same confusion in 4 days; cross-ref 3977 + 1334.
-- LC 2547 (07-07): inner split loop walks j **forward from 0** while the candidate segment is `[j..lastIdx]` — the freq map `adj` was built by *adding* elements as j advances, but advancing j **shrinks** the segment from the left, so `adj` held the wrong element set at every cost evaluation. Direction of accumulation must match direction of segment growth: iterate j from lastIdx downward (segment grows leftward, map only ever adds).
-- SquirrelResearch (07-13) ×3: (1) expiry **branch inversion** — `push_back` sat in the expired branch; only rotten nuts returned; survived one full revision after the arithmetic was fixed. (2) weight lower bound `< 0` where spec (Example 3: "weight not > 0") required `<= 0` — exclusive-boundary strictness; wrong in every revision it appeared in. (3) `getLastOccupiedLevel` scanned bottom-up for "first not-full" instead of top-down for "highest non-empty" — wrong direction AND wrong property.
-- **Pattern:** the invariant is designed correctly; the mechanical realization (which end, which direction, which order) flips. Same genus as B, applied to operations instead of formulas. Spec-impl (07-13) confirms the pattern transfers intact to prose-constraint formats: every substantive miss was a comparison pointing the wrong way at a boundary already read and understood.
+### D — Off-by-one / index-domain translation
+LC 2008 0-based search result into a 1-indexed dp (idiom: `int pos = it - v.begin()` used directly, `dp[0]=0` absorbing the no-predecessor case) · LC 1335 `j < min(i,d+1)` where `j <= min(i,d)` · LC 3956 deque entry `i-1` instead of `i-l` · LC 862 length is `i - j` with prefix indices, not `i - prefixIndex + 1` · LC 2334 exclusive-fencepost span is `right - left - 1` · general resistance to the **n+1 boundary-indexed convention**.
 
-### F — Missing operation / dropped constraint (5 logged)
-- LC 3956: transition missing the `+ prefix[i]` term entirely.
-- LC 312: coins for the last-popped balloon missing the boundary multiplication `nums[i-1] * nums[k] * nums[j+1]`.
-- LC 1793: dropped the constraint that the subarray must **contain index k**.
-- LC 1334: missing stale-node skip (`if (dist > distances[city]) continue;`) after popping.
-- SquirrelResearch (07-13) ×4: (1) **settling rule entirely absent** from first full retrieval implementation despite a dedicated spec section and a named test case. (2) retrieval loop's only stop was capacity — the spec clause "**or the cache empties**" never made it into the condition → max_element on empty range, UB. (3)+(4) **missing `return` ×2** — fall-off-the-end in `HideNut`, then the identical disease in `twoLevelsAvailable` one revision later; same-session recurrence → checklist item: every bool function, audit all control paths.
-- LC 1888 (07-07): entire **type-2 operation (free rotation) never entered the model** — the suffix DP solved the no-rotation problem. Root cause was deeper than a dropped term: rotation is a *global re-alignment*, not a per-position choice, so it cannot be spliced into a local recurrence at all (see §2.2 row). Also symptomatic: the loop never read `s[i]`, and dp[i][0]/dp[i][1] were assigned identical expressions — a degenerate state dimension is a tell that the model is wrong.
+### E — Ordering / direction of operations
+- LC 862 deque pop direction reversed against a correctly designed invariant.
+- Min-cost-path Dijkstra: comparator `p1.second < p2.second` gives a **max-heap** → degrades toward O(VE), TLE.
+- LC 1334 relaxation skip used strict `<`; `<=` keeps the queue tight.
+- LC 2402 room heap ordered by end time only — needs a tie-break on room number.
+- LC 2334 read `st.back()` **before** popping `curr` — the boundary read was `curr` itself.
+- LC 3977 / **LC 1976 (retention miss, 4 days later)** — staleness skip written `>=`, evicting the **live** entry. **The asymmetry to lock: on pop, equal = owner → process (strict `>`); on relax, equal = no improvement → skip (`>=`).**
+- LC 2528 diff-array consume-index alignment; cancellation must accumulate with `-=` at the endpoint, never `=`.
+- LC 2547 inner split loop walked j **forward** while the segment grows **leftward** — the freq map held the wrong element set at every evaluation.
+- SquirrelResearch ×3: expiry branch inversion · weight bound `< 0` where the spec required `<= 0` · scanned bottom-up for "first not-full" instead of top-down for "highest non-empty" (wrong direction **and** wrong property).
+- **findMinimumShifts** (07-2x): the −1 sentinel from plain sweeps left the pre-first / post-last cells unhandled. Two valid completions: explicit wrap branches (`j+cols-last` / `cols-j+first`), or seed `prev = last-cols`, `next = first+cols` so `L <= j <= R` never wraps.
+- **LC 787** (07-2x): `priority_queue` tie-breaker `e1.stops < e2.stops` inverted for a `>`-comparator (it prioritizes MORE stops) — **inert**, because the `[node][stops]` table makes pop order non-load-bearing. The whole tie-break line is dead weight. Logged because the direction error is real even where the consequence isn't.
+- **Custom vector** (07-26): `pop_back` destroying `data_[size_]` before decrementing; `at()` using `>` instead of `>=`.
+**Pattern:** the invariant is designed correctly; the mechanical realization (which end, which direction, which order) flips. Same genus as B, applied to operations.
 
-### G — Numeric type / sentinel / overflow / precision (9 logged, 2 on Jul 7)
-- LC 3956: `INT_MIN` sentinel where the accumulation is `long long` → needed `LLONG_MIN`.
-- LC 3956 **and again** LC 813 (independently, same day): `numeric_limits<double>::min()` is the smallest **positive** double, not the most negative. Use `lowest()` or `-max()`.
-- Mirror-path DP: adding two values each near MOD in `int` → overflow before the `% MOD`. Widen to `long long` first.
-- LC 115: `long long` overflow from explosive binomial growth in intermediate dp cells — the fix was **tightening loop bounds** to skip cells that can't contribute (clamping was the wrong fix; you correctly pushed back on it).
-- LC 2334: `threshold / static_cast<float>(len)` with threshold up to 1e9 exceeds float's 24-bit mantissa → silent precision loss. **Restructure as integer cross-multiply:** `(long long)elem * len > threshold`.
-- LC 2528: **narrowing at a function boundary** — `mid` was `long long` in the caller but `valid(..., int minimumPower)` truncated every candidate above ~2.1e9 silently. Also `vector<int> adjustments` truncating `long long` deltas. Constraints: k ≤ 1e9, windowed power ≤ n·max = 1e5·1e5 = 1e10 — both exceed int.
-- General multi-session: `int * int` intermediate before assignment to `long long` — cast an operand *before* the multiply.
-- LC 2439 (07-07, revisit): `accumulate(begin, end, 0)` — the **literal `0` sets the accumulator type** to int; sum reaches ~1e14 (n=1e5 × 1e9). Use `0LL` — or here, `r = *max_element` (tighter bound, stays in int). Irony logged: `backLog` inside the checker was correctly widened, the line *above* the binary search wasn't. Constraint-glance pre-pass would have caught it.
-- SquirrelResearch (07-13) ×2: (1) reach-down threshold `size < cap/2` — integer division truncates (cap 3 → 1; the spec's own 33% example fails to unlock). (2) rewrite attempt `static_cast<bool>(size()) / cap < 0.5` — cast bound only to size() and cast to **bool** (always 1 for non-empty), then integer 1/cap = 0 → unlocked on EVERY pull. Two stacked type errors; **passed all visible examples anyway** (heavier nuts happened to sit on top). The fix eliminates the class: all-integer cross-multiply `2*size < cap`. Same genus as the LC 2334 float-division entry.
-- LC 1976 (07-07): `vector<int> distances` with path costs up to n·w ≈ 200·1e9 = 2e11; also `road.cost + dist` overflows in int *before* the comparison runs. Widen the dist table AND the PQ payload together.
-- **Rules to lock:** sentinels match the accumulator's width; `lowest()` not `min()` for floating point; widen before multiplying; prefer integer cross-multiplication over any division/float comparison. **A value's type must not narrow as it crosses a function boundary — if a `long long` is passed in, the parameter is `long long`.** Discipline (interview-legitimate, NOT blanket-casting): before coding, glance at constraints, mark every quantity that can exceed 2.1e9 (accumulators + products are the triggers), type *those* `long long` and justify aloud; leave indices/`r`/single elements `int`. Blanket `long long` reads as not understanding types — a smell in HFT interviews specifically.
+### F — Missing operation / dropped constraint
+LC 3956 transition missing `+ prefix[i]` · LC 312 missing the boundary multiplication for the last-popped balloon · LC 1793 dropped "must contain index k" · LC 1334 missing the stale-node skip · SquirrelResearch ×4 (settling rule entirely absent; "or the cache empties" stop clause never coded → `max_element` on an empty range; **missing `return` ×2** in bool functions, the second one a same-session recurrence) · LC 1888 the entire free-rotation operation never entered the model (degenerate dp dimensions were the tell) · **findMinimumShifts** (07-2x) copy-paste: the right-sweep wrote into `nearestFromLeft`, leaving `nearestFromRight` all −1 · **LC 1834** (07-2x) sorted `tasks` in place, destroying the original indices needed for the output.
 
-### L — Parameter/reference propagation (1 logged — new 2026-07-13)
-- SquirrelResearch: `RetrieveSingleNut(double, int max_capacity, ...)` — capacity out-param taken **by value**; callee decremented its own copy, caller's loop condition never changed → infinite loop. Fix: `int&`. C++-mechanism error (Part 1 material) manifesting as a logic symptom; distinct from K (K = state leaks forward; L = state fails to propagate back).
+### G — Numeric type / sentinel / overflow / precision
+- LC 3956 `INT_MIN` sentinel against a `long long` accumulation → needed `LLONG_MIN`.
+- LC 3956 **and** LC 813: `numeric_limits<double>::min()` is the smallest **positive** double. Use `lowest()`.
+- Mirror-path DP: two near-MOD `int`s added before `% MOD`.
+- LC 115 `long long` overflow from binomial growth — fixed by **tightening loop bounds**, not clamping.
+- LC 2334 `threshold / (float)len` exceeds float's 24-bit mantissa → restructure as integer cross-multiply.
+- LC 2528 **narrowing at a function boundary** (`long long mid` → `int` parameter) plus `vector<int>` holding `long long` deltas.
+- LC 2439 `accumulate(b, e, 0)` — the literal `0` sets the accumulator type; sum reached ~1e14.
+- LC 1976 `vector<int>` distances with costs to 2e11; `road.cost + dist` overflows *before* the comparison.
+- SquirrelResearch ×2: `size < cap/2` integer truncation; then `static_cast<bool>(size())/cap < 0.5` — cast bound to the wrong subexpression **and** to `bool`. Both passed all visible examples. Fix eliminates the class: `2*size < cap`.
+- **07-25:** `auto r = arr[i]-arr[i-1]` then `r*r` into a `long long` — `auto` deduces `int`, the multiply overflows first.
+- **07-25:** `i < d.size()-2` wraps for n ≤ 1.
+- **LC 918** (07-2x): `accumulate(..., 0LL)` result assigned into an `int` — the overflow guard defeated by the narrowing on the next token. Safe within constraints, but inconsistent.
+- **LC 2381** (07-29): net alphabet shift can be negative → `shift % 26` is negative → `'a' + negative`. Guard `((x % 26) + 26) % 26`, then rotate in letter-space: `'a' + (s[i]-'a'+net) % 26`.
+**Rules:** sentinels match the accumulator width · `lowest()` not `min()` for floats · widen **before** multiplying, and never rely on the assignment to widen · prefer integer cross-multiplication over division/float · **a value must not narrow as it crosses a function boundary** · any subtraction feeding a `%` gets the `+m` guard. Discipline, not blanket-casting: glance at constraints, mark what can exceed 2.1e9, type *those* `long long` and justify aloud. Blanket `long long` reads as not understanding types — a smell in HFT interviews specifically.
 
-### H — Variable shadowing (1 logged — distinct category by design)
-- LC 2517 (tastiness): `int l = mid;` inside the binary-search loop declared a **new** dead local instead of assigning the outer `l` → infinite loop / wrong convergence. Distinct from A: the name is *right*, the declaration is the bug. Watch every `type name =` inside loop bodies.
+### H — Variable shadowing
+LC 2517 `int l = mid;` inside the binary-search loop declared a dead local instead of assigning → infinite loop · **LC 787** (07-2x) structured binding `auto [n,c,s]` shadowed the parameter `int n`.
+Watch every `type name =` inside a loop body.
 
-### I — Over-engineering / wrong complexity or memory class (7 logged)
-- LC 2444: unnecessary tracking-variable resets + a special case for `minK == maxK` that the general formula already handled.
-- LC 802: added an `unordered_set` for cycle detection when the 3-color `nodes` array already encoded exactly that state.
-- LC 895: heap solution with an O(n) linear scan inside `push` — missed the *one-entry-per-push* paradigm (each push is its own record; never scan).
-- LC 2334: rescanned the entire stack at every index → O(n²), TLE on strictly-increasing input. The idiom is **evaluate at pop time**, when an element's full span is known.
-- minCost-string (recursive): memoized a recursion whose subranges are **disjoint** — the dp was written and never read; plus `vector<unordered_map>` (~56B per empty map × 1e6 → MLE) plus `string` passed **by value** down the recursion (and unused).
-- Teleport-grid Dijkstra: O(m²·n²·k) teleport fan-out coded before the complexity was checked — no micro-optimization could save it; needed virtual-node-per-price-level restructuring.
-- LC 1334 (minor): `unordered_map` adjacency for contiguous 0..n-1 nodes where `vector<vector<Road>>` is strictly better.
-- **Countermeasures:** before adding a container/state var, name the fact it tracks — if an existing structure already encodes it, don't. Before coding a graph/DP with fan-out, multiply out the worst case. Feed monotonic structures a sorted adversarial input mentally.
+### I — Over-engineering / wrong complexity or memory class
+LC 2444 redundant resets + a special case the general formula already covered · LC 802 an extra `unordered_set` where the 3-color array already encoded it · LC 895 O(n) scan inside `push` (missed one-entry-per-push) · LC 2334 full-stack rescan → O(n²) TLE · minCost-string memoized disjoint subranges (dp written, never read) + `vector<unordered_map>` MLE + `string` passed by value · teleport-grid fan-out coded before the complexity was multiplied out · LC 1334 `unordered_map` adjacency for contiguous ids · **findMinimumShifts** stored two full rows×cols `int` matrices (~80 MB at the ceiling) where folding each row into one totals array suffices · **LC 918** two O(n) DP arrays where scalars suffice · **LC 2134** duplicated the array where modular indexing `r % n` gives O(1) space · **LC 1631** reallocated the visited grid on every binary-search iteration (~20×) plus `vector<bool>` overhead, and checked the target at pop instead of push.
+**Countermeasures:** before adding a container or state var, name the fact it tracks — if an existing structure encodes it, don't · multiply out worst-case fan-out before coding · feed monotonic structures a sorted adversarial input mentally.
 
-### J — API convention misuse (5 logged, ≥4 separate sessions)
-- `lower_bound`/`upper_bound` custom-comparator argument order — **the single most repeated convention bug** (LC 1751 and at least three other sessions):
-  - `lower_bound(first, last, value, comp)` calls `comp(element, value)` — "first element NOT less than value."
-  - `upper_bound(first, last, value, comp)` calls `comp(value, element)` — "first element that value is less than."
-  - Mnemonic: **the thing being tested for smallness comes first.** Compiles fine with the wrong order; silently wrong results on heterogeneous (struct-field) searches.
-- LC 862: uncertainty about what `upper_bound` returns relative to the target (strictly-greater position).
-- **Countermeasure:** never write these comparators from memory mid-problem; recite the convention line first, then write.
+### J — API convention misuse
+`lower_bound`/`upper_bound` custom-comparator argument order — **the single most repeated convention bug** (LC 1751 + 3 other sessions): `lower_bound` calls `comp(element, value)`; `upper_bound` calls `comp(value, element)`. Mnemonic: **the thing tested for smallness comes first.** Compiles fine, silently wrong on struct-field searches.
+**Countermeasure:** recite the convention line before writing the comparator.
 
-### K — State hygiene across calls (1 logged)
-- LC 1631: the grid was permanently mutated inside the binary-search feasibility check, corrupting every subsequent `check(mid)`. Heuristic installed: **visited-array when arrival direction doesn't affect the answer; backtrack/restore when the path itself matters.** Related discipline: memo arrays need explicit reset across LC test cases (`memset`/`assign`), since statics persist.
+### K — State hygiene across calls
+LC 1631 mutated the grid inside the feasibility check, corrupting every later `check(mid)`. Heuristic: visited-array when arrival direction doesn't matter; backtrack/restore when the path itself matters. Memo arrays need explicit reset across test cases.
+
+### L — Parameter/reference propagation
+SquirrelResearch: capacity out-param taken **by value**; the callee decremented its own copy → infinite loop. Fix `int&`. Distinct from K (K = state leaks forward; L = state fails to propagate back).
+
+### M — Typo class the compiler would have caught
+SPSC `pop()`: `if (headCurr = tailCurr)` for `==`. **`-Wall -Wextra` is free; build it into the habit.**
 
 ## 2.2 Identification Failures — approach selection & reframing
 
-*The other half of the skill. Each row: what was reached for, what it actually was, the root cause, and the trigger to install.*
+| Problem | Reached for | Actually was | Trigger to install |
+|---|---|---|---|
+| LC 2555 | hashmaps + binary search | sliding window over sorted positions | sorted array + "window of length L" → two-pointers FIRST |
+| LC 2439 | pairwise local averaging greedy | binary search on answer + prefix feasibility | "minimize the maximum" → BSoA; adversarially test any local greedy before coding |
+| LC 895 | heap + O(n) scan in push | freq map + stack per frequency level | design problems: every op O(1)/O(log n) **by construction**; a scan inside push means the paradigm is wrong |
+| LC 1494 | stalled on mask meaning | `dp[mask]` = min semesters for that exact completed set | bitmask DP: state = subset achieved; path-independence is the point |
+| LC 992 | doubted the window invariant | `atMost(K) − atMost(K−1)` | "exactly K" on windows → difference of two atMost passes |
+| LC 828 | one previous position per char | two previous positions + position-gap contribution | contribution counting: the unit is (left choices) × (right choices) in **positions** |
+| LC 2818 | "map element to max score" | contribution counting + greedy spend — **two independent stages** | subarray outcome decided by one "best" element → per-element win-count; then look for a second stage |
+| LC 3928 | "Dijkstra twice from each node?" | one Dijkstra on a layered graph (2n nodes) | per-node mode/state → add a graph layer, not a second pass |
+| LC 1478 | continuous mailbox position as the DP choice | sort → contiguous blocks (exchange argument) → partition DP over split points, closed-form median cost | geometric problem on a line → sort, prove contiguity by exchange, THEN partition DP with precomputed `cost(l,r)`. Family: 410, 813, 1959 |
+| LC 3977 | single dist-per-node Dijkstra | `(node, power)` state | Dijkstra with a carried resource → "can a worse-primary arrival with a better resource be needed later?" If yes, it's a dimension |
+| LC 813 vs 1043 | conflated the two k's | 813: k caps **group count**; 1043: k caps **group length** | when k appears, say out loud what k bounds before designing state |
+| LC 630 (revisit) | "is there even a greedy?" | regret/heap greedy: deadline-sort + take-if-fits + evict the longest | **retention failure** — 871's mechanism was never generalized into a trigger. Proof sentence cold: "dropping courses converts count→slack; slack converts back at ≤1-for-1, so it never profits." (The invariant is **count**, not time) |
+| LC 1866 | no independent state | permutation-counting DP: insert by rank, leftmost slot visible | comparison-defined counting → insert by rank, count insertion positions by effect. Drill 629 → 920 → 1359 |
+| LC 1976 | one PQ pop per shortest path | augmented Dijkstra carrying `ways[]`: `<` overwrites, `==` accumulates, propagate only once a distance is FINAL | "shortest path + something *about* the shortest paths" → augmented Dijkstra. The staleness check becomes a **correctness** guard, not an optimization |
+| LC 2831 | "how do I query deletions-in-range fast" | occurrence-space window (group indices by value); or stale-max `winLen − maxFreq ≤ k` | axis-swap flavor #3 (array → occurrence space). Key templates on the **formula**, not the operation verb — "deletion" failed to retrieve a template filed under "replacement" |
+| LC 1888 | splice free rotation into a suffix DP | flips ∘ rotations **commute** → rotate first: min over n rotations of mismatch count; rotations = length-n windows of `s+s` | a global re-alignment op cannot be a local DP transition. Anchor the pattern to **absolute** indices of `s+s` so per-char verdicts survive window motion |
+| **LC 2381** (07-29) | two direction-split lists sorted by start + binary search for coverage | **difference array** (+1 at `l`, −1 at `r+1`, one prefix pass) | **RETRIEVAL failure, not a knowledge gap** — catalogued twice already. Trigger to rehearse: *"many range updates, then read the whole array once" → difference array; "range sum queried repeatedly" → prefix sum; interleaved updates and reads → Fenwick.* (The corrected binary-search route is also valid: decouple starts and ends, coverage = `#starts ≤ i` − `#ends < i`.) |
+| **LC 1871** (07-29) | O(n log n) sorted reachable-index vector + `lower_bound` | O(n) prefix-count over the window `[i-maxJump, i-minJump]` | reachability with a *range* of predecessors → dp + prefix sum. It's safe because the window's right edge `i-minJump` is strictly `< i` (minJump ≥ 1), so every prefix value queried is already computed |
+| **LC 1631** (07-2x) | BSoA + BFS feasibility (correct, but slow) | minimax Dijkstra — `dist` = min over paths of the **max** edge, relax via `min(dist, max(dist_cur, edgeDiff))`; or Kruskal/union-find until endpoints connect | same "augment what distance MEANS" insight as 787. Single pass beats binary-search-plus-search when the answer *is* a path statistic |
+| Recurring | prose instinct → no state | the prose WAS the state definition | enumerate the choices at position i first; the state is whatever those choices need to know |
+| Recurring | element-indexed prefix DP | boundary-indexed (n+1) | prefix DPs index **boundaries**; size n+1, answer at `dp[n]` |
+| **Bitmask DP** ⚠️ FLAGGED | stalls on "what does the mask index" | mask = the ≤~20 **target** set; iterate resources, each ORs in a submask | traceback (`parent[]`) only if the answer needs *which* resources |
 
-| Problem | Reached for | Actually was | Root cause | Trigger to install |
-|---|---|---|---|---|
-| LC 2555 | hashmaps + binary search | sliding window over sorted positions | thinking in **values**, not **indices**, on a sorted array | sorted array + "segment/window of length L" → try two-pointers/window FIRST |
-| LC 2439 | pairwise local averaging greedy | binary search on answer + prefix feasibility | greedy locality never stress-tested | "minimize the maximum" → BSoA reflex; adversarial-test any local greedy before coding |
-| LC 895 | heap + O(n) scan in push | freq map + stack-per-frequency-level | DS-design paradigm gap: **one entry per push** | design problems: every op should be O(1)/O(log n) *by construction*; a scan inside push/pop means the paradigm is wrong |
-| LC 1494 | stalled on bitmask state meaning | dp[mask] = min semesters for that exact completed-set | state semantics: **which** set is done matters, not how you got there | bitmask DP: state = subset achieved; path-independence is the whole point |
-| LC 992 | (correctly doubted the window invariant) | atMost(K) − atMost(K−1) | "exactly-K" transform not yet installed | "exactly K" on windows → difference of two atMost() passes |
-| LC 828 | one previous position per char | two previous positions + position-gap contribution | state under-dimensioned; contribution counted in dp-values not gaps | contribution counting: the unit is (left-choices) × (right-choices) in **positions** |
-| LC 927 | (insight correct) | three-pointer simultaneous walk | multi-pointer lockstep implementation, not identification | implementation drill, see §2.3 |
-| LC 2818 | stalled on "map element to max score" | contribution counting (zone of dominance, prime-score key) + greedy spend — **two independent stages** | didn't see the problem *factors* into two known moves | when a subarray's outcome is decided by one "best" element under a ranking → per-element win-count = contribution counting; then look for a second, separate stage |
-| LC 3928 | "Dijkstra twice from each node?" | single Dijkstra on a layered graph (2n nodes: empty/carrying) | state augmentation reframe (layer = carried state) | per-node mode/state → add a graph layer, not a second pass |
-| LC 1478 | "where does the last mailbox go?" (continuous position as the DP choice) | sort → contiguous blocks (exchange argument) → partition DP over split points + closed-form median cost per block | the reduction *in front of* the DP wasn't automatic — prior partition-DP reps (word break, palindromes) hand you sequence order for free; here contiguity had to be earned | geometric/assignment problem on a line → sort, prove per-server blocks are contiguous via exchange argument, THEN it's partition DP with precomputed cost(l,r). Drill family: 410 (DP form), 813, 1959 |
-| LC 3977 | single dist-per-node Dijkstra | `(node, power)` state — power is a real dimension | Pareto non-dominance: a worse-time arrival with MORE power isn't dominated (power can gate later edges), so neither coordinate alone dominates | Dijkstra with a carried resource → ask "can a worse-primary arrival with better-resource ever be needed later?" If yes, resource is a state dimension (or a `settled[node]=best-resource` frontier prune if the resource range is large) |
-| Teleport-grid | coded the fan-out directly | virtual nodes per price level | complexity not multiplied out before coding | write the edge-count formula BEFORE implementing any fan-out construction |
-| LC 813 vs 1043 | conflated the two k's | 813: k caps **group count**; 1043: k caps **group length** | imprecise structural read of the constraint | when k appears, say out loud what k bounds before designing state |
-| Recurring | prose instinct → no state | the prose WAS the state definition | NL→state conversion gap ("all different possible total rewards" = the dp axis) | procedure: enumerate the choices at position i first; the state is whatever those choices need to know |
-| Recurring | — | prefix-sum ↔ subarray-sum link | needs prompting to connect "subarray sum" to prefix differences | "subarray sum/count with condition" → prefix quantity + hashmap/sorted structure over prefixes |
-| Recurring | element-indexed prefix DP | boundary-indexed (n+1) convention | resistance to fencepost indexing | prefix DPs index **boundaries**, not elements; size n+1, answer at dp[n] |
-| **Bitmask DP over a small target set** ⚠️ FLAGGED WEAK — REVISIT | stalls on "what does the mask index" | mask = the ≤~20 target set (skills / customers / nodes); iterate the *resources* one at a time, each flips on a submask | state-design stall: recognizing bitmask is needed but not what the bits ARE | when a target set has size ≤ ~20 and you assign resources to cover/satisfy it → `dp[mask]` over the TARGET set; process resources one at a time; transition ORs in each resource's reachable submask. Traceback (`parent[]`) only if the answer needs *which* resources, not just feasibility/count |
-
-| LC 630 (07-06 **revisit** — first seen 06-16; 871 regret-greedy self-identified 07-01) | "is there even a greedy?" guess, then stalled on the mechanism | regret/heap greedy: deadline-sort (exchange arg) + take-if-fits + evict current longest via max-heap | **retention/transfer failure**: 871's mechanism was installed but never generalized into a trigger; also twice asserted **time** (not **count**) as the invariant quantity in the correctness proof — the multi-swap is rejected because it costs count, not because it worsens time (it strictly improves time) | sequential budget + commitments you'd sometimes want to un-take + "worst held item" is one comparable number → heap regret greedy. Proof sentence to say cold: "dropping courses converts count→slack; slack converts back at ≤1-for-1 (the swap op proves it), so never profits" |
-| LC 1866 | no independent state; recurrence supplied | permutation-counting DP: dp[i][j] via inserting the new **shortest** stick (rank order), leftmost slot = visible, other i−1 slots = hidden | new subfamily: didn't know insertion-by-rank or the rank-relabeling bijection that licenses dropping identities from the state (comparison-only property ⇒ ranks lossless) | counting arrangements with a comparison-defined property (visible/records/inversions) → insert by rank, count insertion positions by effect. Drill set: **629 → 920 → 1359** |
-
-| LC 1976 (07-07) | one PQ pop per shortest path, counting pops at the target | **augmented Dijkstra**: carry ways[] through relaxation — `<` overwrites, `==` accumulates; a node's count may only propagate once its distance is FINAL (the staleness check is now a *correctness* guard, not an optimization) | had only ever used the staleness check as a perf nicety, so its correctness role was invisible; also misconceived path counting as path enumeration (answer can be exponential — the mod hint in the statement was the tell) | "shortest path + something *about* the shortest paths" (count / min-edge / reconstruction) → augmented Dijkstra: secondary quantity per node, equal-case branch, propagate-on-finalization. Alt frame: tight edges (dist[u]+w==dist[v]) form a DAG, accumulate in dist order. Consolidation: 1786 (assigned + solved same day) |
-| LC 2831 (07-07) | "how do I query deletions-in-range fast" (reaching for a structure) | occurrence-space window: group indices by value, slide over each positions list; deletions = span − count. OR: stale-max window on the raw array (`winLen − maxFreq ≤ k`) | axis-swap flavor #3 (array→occurrence space) not yet named; AND the stale-max template was filed under "replacement ops" (424/1838) so "deletion" didn't retrieve it — key the template on the FORMULA `winLen − maxFreq ≤ k`, not the operation verb | one-value objective ("all equal" / freq-of-X) → per-value positions lists. When a window feels blocked on "compute X cheaply": 30-sec reframe check (different sequence to slide over?) BEFORE reaching for a structure. Stale max is safe because ans only improves when maxFreq genuinely increases |
-| LC 1888 (07-07, walked — implementation unconfirmed) | splice free-rotation into the suffix DP as the "free" branch | flips ∘ rotations **commute** → all rotations first, then flips: answer = min over n rotations of mismatch count; rotations of s = length-n windows of s+s; anchor patterns "0101…"/"1010…" to ABSOLUTE indices of s+s so per-char verdicts survive window motion (min(diffA,diffB) is phase-swap invariant) | a global re-alignment op can't be a local DP transition — no state at index i captures "we rotated"; plus coordinate-anchoring trick unknown | free/cyclic op + optimize per rotation → s+s window; window criterion that seems position-dependent → anchor to absolute coordinates, track all phases. Related: rotation only matters for odd n here (even n: rotation just swaps pattern roles). Same coordinate-system genus as the n+1 prefix boundary convention |
-
-**Solid recognitions (for contrast, keep calibrated):** Kadane (LC 2606) instant; BSoA (LC 2616, and LC 2439 on second look) reliable; knapsack connection (LC 871) self-identified; exchange-argument skeleton installed; LC 2551/1899 solved fast but with prior exposure — freshness there unverified.
-
-**Deferred topics:** LC 2839 (coordinate-compressed segment trees) — revisit after studying segment trees / BIT.
+**Solid recognitions (calibration):** Kadane instant · BSoA reliable · knapsack connection self-identified (871) · exchange-argument skeleton installed · **regret greedy now self-identified (1642, 07-29)** · **greedy + difference array self-identified before coding (995, 07-29)** · circular-array reframe pair named correctly, and binary-search-on-window-size correctly *rejected* for 2134 (the window size is fixed, nothing monotonic to search).
 
 ## 2.3 Idioms & Checklists to Drill
 
-**Two pre-passes to run before submitting (installed 2026-07-03, LC 2528):**
+**Two pre-passes before submitting:**
+1. **Type-width pass** [G] — read the constraints, compute the max of every accumulator and product; anything past 2.1e9 is `long long`, including **function parameters** and **containers of deltas**. Justify each aloud. Indices and single small elements stay `int`.
+2. **Draw-the-array pass** [D, E] — for anything spatial (difference arrays, windows, monotonic spans, 2D DP), sketch 6–8 cells and mark: the interval for a sample index, where each delta is written, where consumed, where it cancels. Walk one concrete element through.
 
-*(1) Type-width pass — for numeric/overflow bugs [category G].* Before coding: read the constraints, compute the max value of every accumulator and product. Anything that can exceed 2.1e9 (INT_MAX) is `long long`. Then check every function boundary: if a `long long` is passed in, the parameter is `long long` too (LC 2528's real bug was `int minimumPower` truncating a `long long mid`). Containers holding wide deltas are `long long` too (`vector<int> adjustments` was wrong). This is NOT blanket-casting — indices, `r`, single small elements stay `int`, and you justify each `long long` aloud. Trigger words in constraints: any bound ≥ ~1e5 that gets summed or multiplied.
+**Difference array — O(1) range update, offline read.** `diff[L] += v; diff[R+1] -= v;` then one prefix-sum pass. Sticky-note intuition: leave a note at `L` saying "from here add v" and at `R+1` saying "stop"; walk the line once carrying a running total, and what you're carrying at `i` is what `i` was owed. Size `n+1` so `R+1` is in bounds at `R = n-1` (this also removes any `if (R+1 < n)` guard). `long long` when values accumulate. **Decision rule: all updates before all reads → difference array; interleaved point-updates and range-reads → Fenwick; interleaved range-updates and range-reads → lazy segment tree.** Canonical: 2528, 1109, 370, 1094, 2381, 995.
 
-*(2) Draw-the-array pass — for index/alignment bugs [categories D, E].* For anything spatial — difference arrays, sliding windows, monotonic-stack spans, 2D grid DP — sketch 6–8 cells on paper and mark: the coverage/window interval for a sample index, where each delta is written, where it's consumed, where it cancels. Walk one concrete element through. This catches fencepost errors, `[i-r,i+r]` vs `[i-r,i+r-1]`, and diff-array turn-on/turn-off misalignment. (It would NOT have caught LC 2528's bugs, which were type-width — different pre-pass. Match the pass to the failure class.)
+**Prefix sum — O(1) range read.** The exact inverse: prefix sum turns *range reads* into two point lookups; a difference array turns *range writes* into two point writes. Uses: range sums; subarray-sum-equals-k with a hashmap (and the divisible-by-k / mod variants); prefix XOR / product / GCD; frequency prefixes for "how many of char c in `s[i..j]`"; **reachability over a window of predecessors** (1871).
 
-**Bitmask DP over a small target set (⚠️ FLAGGED WEAK AREA — Ethan self-identified, revisit):**
-*Recognition:* a target set of size ≤ ~20 (skills, customers, nodes to visit) that you cover/satisfy by assigning resources. The size-≤20 constraint IS the tell.
-*State:* `dp[mask]` where mask = subset of the TARGET set achieved (NOT the resources). This is the step Ethan stalls on — "what do the bits index?" Answer: always the small target set.
-*Process:* iterate resources (people / piles / nodes) one at a time; each resource, when applied, ORs some reachable submask into the current mask.
-*Transition shape:* for each reachable `mask`, for each valid `sub` this resource can cover, `dp[mask | sub] = true` (or min-cost etc.).
-*Traceback:* store a `parent[]` array ONLY if the answer needs *which* resources were chosen (LC 1723 needed it — count alone doesn't say who). If the answer is just feasibility/count (LC 1655 boolean), NO traceback — don't over-build.
-*Two examples seen:*
-  - **LC 1723 Smallest Sufficient Team** (06-27): mask = skills covered, iterate people, each = fixed skill-submask. Needed parent[] for reconstruction. Stalled on state design.
-  - **LC 1655 Distribute Repeating Integers** (07-03): mask = customers satisfied, iterate distinct-value piles, each pile serves any customer-submask with `need[sub] <= count`. Boolean, no traceback.
-*New machinery in 1655 (wasn't in 1723):*
-  - **Submask enumeration:** `for (int sub = S; sub; sub = (sub - 1) & S)` — and remember `sub = 0` (assign to nobody) is valid, handle it outside the loop. Getting this loop wrong is a silent bug.
-  - **`need[submask]` precompute:** `need[sub] = need[sub & (sub-1)] + quantity[__builtin_ctz(sub)]` — off-by-one between bit position and quantity index is the category-A identifier trap.
-  - **Pruning:** only the ≤~50 largest resource counts can matter when m ≤ 10 (can't use more piles than that). Complexity ~ (#distinct) × 3^m.
-*Why DP not greedy:* assigning a resource to one target constrains all future assignments non-locally → local optima strand later targets. (Standard greedy red flag.)
+**Modular / cyclic index arithmetic.** C++ `%` truncates toward zero → negative operands give negative results. Guard: `((x % m) + m) % m`. Cyclic step backward: `(i - k + n) % n`. Alphabet rotation: rebase to 0..25 first, `'a' + (c - 'a' + net) % 26`. **Any subtraction feeding a `%` gets the `+m`.**
 
-**Difference array — O(1) range-update + point-query (learned 2026-07-03, LC 2528):**
-Turns "add `v` to every index in `[L,R]`" into two O(1) edits: `diff[L] += v; diff[R+1] -= v;`. A running prefix sum over `diff` (left-to-right) reconstructs each position's live total — each interval's `+v` turns ON at `L`, OFF at `R+1`, so at position `i` the running sum = sum of all `v` whose interval covers `i`. Range-update + point-query, both O(1) amortized, one pass. Avoids the O(n·r) rescan (category I) when many overlapping range-adds accumulate during a sweep. Two traps: size `diff` as `n+1` so `diff[R+1]` at `R=n-1` is in-bounds (C/D off-by-one); `long long` throughout when values accumulate (G). Canonical use: feasibility checks in binary-search-on-answer where each forced action adds power/coverage over a forward range (LC 2528, 1109, 370, 1094).
+**Circular arrays — the named pair.** (a) **Complement / total-minus-min** — no index wrap needed, works when the answer is a *sum* over the whole array minus an interior interval (918: max circular subarray = max(Kadane, total − minKadane), with the all-negative guard `smallest == total`). (b) **Duplicate the array (or index mod n)** — for wrap-straddling *windows* (2134, 1610, 1888's rotations as windows of `s+s`). Fixed-size window ⇒ nothing monotonic to binary search.
 
-**Binary-search-on-answer verification ritual (reinforced 2026-07-03):**
-Before coding BSoA, state the monotonicity sentence out loud: "if target `x` is feasible, every `x' < x` is feasible (same solution already clears the lower bar); if `x` infeasible, `x+1` also infeasible (needs ≥ as many resources)." That one argument is the license. Then: bounds (lo = current worst, hi = worst + budget), and an O(n) greedy `feasible(x)`. The check is where the bugs live, not the search.
+**Binary-search-on-answer ritual.** State the monotonicity sentence aloud before coding: "if x is feasible, every x' < x is feasible; if x is infeasible, x+1 is too." Then bounds, then an O(n) greedy `feasible(x)`. The bugs live in the check, not the search. Template: `mid = l + (r - l + 1)/2` for the right-bound form; any `int l = ...` inside the loop is shadowing [H].
 
-**Monotonic stack — pop-time evaluation (LC 84 / 907 / 1856 / 2334 family):**
-An element's full span-as-minimum is known exactly when it's **popped**. Never rescan the live stack. Left boundary = element *below* it after popping (exclusive); right boundary = the incoming index (exclusive); span = `right - left - 1`. Append a sentinel (e.g. −1 / 0) to flush the stack at the end.
+**Dijkstra checklist.** `priority_queue<pair<long long,int>, vector<...>, greater<>>` with `{dist, node}` — `greater<>` on that pair order gives the min-heap free. Pop → `if (d > dist[u]) continue;` — **strict `>`, never `>=`**. Push only on strict improvement. `long long` distances. Initialize the source cell (2D too).
+- **State sizing first:** a single dist-per-node suffices only if no carried resource gates future edges. If a worse-primary arrival with a better resource can be needed later (Pareto non-dominance), the resource is a dimension: `(node, resource)` table for a small range, or a `settled[node]` frontier prune for a large one. Never a second pass. Seen as `(node, power)` in 3977, `[node][stops]` in 787.
+- **Augment what "distance" MEANS**, not just the state: minimax paths relax with `min(dist, max(dist_cur, w))` (1631); path *counts* relax with `<` overwrite / `==` accumulate (1976).
+- **Early return at target** is valid only when the PQ order makes the first target-pop optimal on all keys.
 
-**Contribution counting — strict/non-strict asymmetry:**
-Count per element: `(i − left[i]) × (right[i] − i)`. With duplicates, symmetric strictness double-counts: use **strictly** on one side, **or-equal** on the other (e.g. previous strictly-smaller, next smaller-or-equal; or the problem's stated tie-break, as in 2818's index rule). Max-over-spans (histogram) doesn't care; sum-over-counts does. Shared engine: *element + maximal zone of dominance*; the knobs are (a) max vs sum, (b) tie-break strictness.
+**Regret / heap greedy.** Trigger: a sequential budget + commitments you'd sometimes want to un-take + "the worst held item" is one comparable number. Take everything greedily; when the budget breaks, evict the worst held item from a heap. 871, 630, 1642 (bricks vs ladders: always spend bricks, and when they run out, promote the largest past climb to a ladder).
 
-**Dijkstra checklist (assembled from 4 sessions of bugs):**
-`priority_queue<pair<long long,int>, vector<...>, greater<>>` with `{dist, node}` — greater<> on that pair order gives the min-heap free (no hand-written comparator to invert). Pop → `if (d > dist[u]) continue;` (stale skip — **strict `>`, never `>=`**; the popped entry equals its cell by construction, so `>=` evicts the live owner). Push only on strict improvement `nd < dist[v]`. `long long` distances. `vector<vector<>>` adjacency for contiguous node ids. **Initialize the source cell** (`dist[source]=0`, and `dist[source][fullResource]=0` for augmented state) before the loop.
-- **State sizing (decide FIRST):** single dist-per-node suffices only if no carried resource can gate future edges. If a worse-primary-key arrival with a better secondary resource can be needed later (Pareto non-dominance), the resource is a **state dimension** `(node, resource)` — table if the resource range is small, or a `settled[node] = best-resource-finalized` frontier prune (pop in primary-then-resource order, skip `resource <= settled[node]`) if the range is large. Never a second pass.
-- **Early return at target** is valid when the PQ order makes the first target-pop already optimal on all keys (e.g. `{time, -power}` → first pop is min-time, max-power).
+**Monotonic stack — evaluate at pop time.** An element's full span-as-minimum is known exactly when popped. Left boundary = the element below it after popping (exclusive); right = the incoming index (exclusive); span = `right - left - 1`. Sentinel at the end to flush. Never rescan the live stack.
 
-**Process discipline — patch vs refactor:** when a design has the right *state, comparator, and relaxation*, diagnose whether failures are 1-line bugs (uninit cell, wrong inequality) BEFORE rewriting the approach. LC 3977 was two 1-line patches from correct; a full `settled[]`/Pareto refactor was explored unnecessarily. Cost: real time. Tell: if the shape is sound and only edge cases fail, you have bugs, not the wrong algorithm.
+**Contribution counting — strictness asymmetry.** `(i − left[i]) × (right[i] − i)`. With duplicates, symmetric strictness double-counts: strict on one side, or-equal on the other. Max-over-spans doesn't care; sum-over-counts does.
 
-**`lower_bound` / `upper_bound` conventions:**
-lower → `comp(element, value)`; upper → `comp(value, element)`; "the thing tested for smallness comes first." Returns: lower = first ≥, upper = first >. For struct fields, the heterogeneous comparator's parameter order must match the function, not your intuition.
+**Bitmask DP over a small target set** (⚠️ weak). Recognition: target set ≤ ~20 that you cover by assigning resources — the size constraint IS the tell. State: `dp[mask]` over the **target** set, never the resources. Iterate resources one at a time; each ORs in a reachable submask. Submask loop `for (int sub = S; sub; sub = (sub-1) & S)` — and `sub = 0` is valid, handle it outside. `need[sub] = need[sub & (sub-1)] + quantity[__builtin_ctz(sub)]`. Traceback only if the answer needs *which* resources (1723 yes, 1655 no). Why not greedy: assignment constrains future assignments non-locally.
 
-**Binary search hygiene:** right-bound template uses `mid = l + (r - l + 1) / 2` (avoid the l==r-1 stall); assignments in the loop are `l = mid;` — any `int l = ...` inside the loop is shadowing (H).
+**DP state-derivation procedure.** (1) Parameterize the question — "exactly/at most k of P" puts P's count in the state. (2) Sufficiency test — what must the future know? List the leaks. (3) **Eliminate before enlarging** — for each leak try reordering processing (position → rank/sorted/reverse), canonicalizing (relabel to ranks), or conditioning on a special element. Only a leak surviving all three becomes a dimension. Dividing question: *does the future need this intrinsically, or is it an artifact of my processing order?* (4) Size it against constraints.
 
-**Exactly-K on windows:** `exactly(K) = atMost(K) − atMost(K−1)`.
+**Permutation-counting DP.** Trigger: counting arrangements where the property is defined purely by **comparisons**. Relabel to ranks (bijection ⇒ identities drop from the state), build by inserting in rank order, count insertion positions by effect. 1866: `dp[i][j] = dp[i-1][j-1] + (i-1)*dp[i-1][j]`. Dies the moment magnitudes matter.
 
-**0-indexed input → 1-indexed dp:** compute `pos = it - v.begin()` and use it directly as the dp index with `dp[0]` as the empty-prefix base; do not juggle a `j`/`j+1` pair.
+**Smaller conventions.** `lower_bound` → `comp(element, value)`, `upper_bound` → `comp(value, element)` ("the thing tested for smallness comes first"); returns first ≥ / first >. Exactly-K on windows = `atMost(K) − atMost(K−1)`. 0-indexed input → 1-indexed dp: use `pos = it - v.begin()` directly with `dp[0]` as the empty-prefix base. Knapsack 2D→1D: iterate capacity **in reverse**. Grids in DP: flat `vector<int>` with manual indexing beats `vector<vector<int>>`. `static int directions[][]` inside a member function is a smell — drop `static` or use `constexpr`.
 
-**Knapsack 1D collapse:** 2D `dp[i][w]` → 1D by iterating capacity **in reverse** (forward reuses this round's items).
+**Process discipline — patch vs refactor.** When the state, comparator, and relaxation are right, diagnose whether the failures are 1-line bugs BEFORE rewriting the approach. 3977 was two 1-line patches from correct; a full refactor was explored unnecessarily. Tell: if the shape is sound and only edge cases fail, you have bugs, not the wrong algorithm.
 
-**Grids in DP:** flat `vector<int>` or global C array with manual indexing over `vector<vector<int>>` when bounds are known (cache locality; from the heap/stack session).
+**Retrieval discipline (new 07-29).** A catalogued technique that doesn't fire is a *retrieval* failure, and no pre-submit checklist catches it — checklists run after you've chosen an approach. The fix is rehearsing trigger phrases in the constraint-reading pass, not adding a check. Before coding anything with ranges: say which of {prefix sum, difference array, Fenwick} the update/read pattern implies.
 
-**Permutation-counting DP (installed 2026-07-06, LC 1866):** trigger = counting arrangements where the property is defined purely by comparisons. Move: relabel to ranks (bijection preserves all comparisons ⇒ every i-set has identical counts ⇒ identities drop from state), then build by inserting elements in rank order and count insertion positions by their effect. 1866 recurrence: `dp[i][j] = dp[i-1][j-1] + (i-1)*dp[i-1][j]` (leftmost slot = visible; widen before `*`, base dp[0][0]=1 only). The compression DIES the moment magnitudes matter (sums/thresholds on values) — 2-second scan for any non-comparison use of values.
+## 2.4 Per-Problem Log (chronological)
 
-**DP state-derivation procedure (named 2026-07-06 — countermeasure for the §2.2 state-design stalls):**
-1. **Parameterize the question** — turn the problem's constants into variables; "exactly/at most k of P" puts P's count in the state.
-2. **Sufficiency test** — what must the future know about a partial solution? List the leaks.
-3. **Eliminate before enlarging** — for each leak try: reorder processing (position→rank/sorted/reverse), canonicalize (relabel to ranks), condition on a special element (min/max/first/last). Only a leak that survives all three becomes a dimension. (Reorder killed the ordering dimension in 630 and the running-max dimension in 1866; 3977's power leak was intrinsic → dimension. Dividing question: *does the future need this intrinsically, or is it an artifact of my processing order?*)
-4. **Size it** against constraints; if it doesn't fit, return to 3 with more force.
+Format: `LC # (date) — bugs [category] / notes`. Older entries compressed to their distinct content.
 
-## 2.4 Per-Problem Log (chronological, append-only)
+**May–June:** 1793 dropped must-contain-k [F] · 862 identifier, formula inversion, deque start, length formula [A,B,C,D] · 1340 min↔max [A] · 3956 identifier, prefix direction, deque entry, sentinel width, missing term [A,B,D,F,G] · 1626 self-compounding transition [A] · 1335 base row + loop bound [C,D] · 115 base case + binomial overflow [C,G] · 992 array sizing + `clear()` misuse [C] · 2008 index-domain [D] · 1334 relaxation strictness, missing stale skip, map adjacency [E,F,I] · 2402 heap tie-break [E] · 802 redundant set [I] · 895 scan-inside-push [I,§2.2] · 1092 wrong comparison criterion [B] · 828 dp-values vs position gaps [B,§2.2] · 2444 wrong anchor + redundant state [B,I] · 2555 / 2818 / 1494 / 992 / 927 identification rows [§2.2] · 2517 shadowing [H] · 1723 bitmask stall [§2.2] · 2439 greedy → BSoA [§2.2] · 813 vs 1043 k-semantics [§2.2] · teleport-grid + mirror-path + minCost-string clusters [A,C,G,I].
 
-Format: `LC # (date) — bugs [category letters] / identification notes`
+**July 1–13:** 1751 comparator order [J] · 871 knapsack + regret greedy installed · 673/813/494/1043 state-dimension drill · 2402 / 2334 (span formula, full-stack rescan, float precision, read-before-pop) [B,E,G,I] · 3977 state augmentation + uninitialized source + `>=` staleness [C,E,§2.2] · 2528 BSoA + difference array **first learned**; consume alignment [E], `vector<int>` deltas and `int` parameter narrowing [G] · 1655 bitmask paused (drill 1655 → 698 → 2305) · 630 revisit — retention failure [§2.2] · 2407 segment-tree KIV · 1866 permutation-counting installed · 1478 partition-DP reduction + over-broad base [C,§2.2] · 2218 allocation sizing [C] + amortized-over-sum complexity lesson · 1976 augmented Dijkstra, `>=` retention miss, int distances [E,G,§2.2] · 2439 revisit `accumulate(...,0)` [G] · 2831 occurrence-space reframe [§2.2] · 1888 walked (rotation cannot be a DP transition) [F,§2.2] · 2547 accumulation direction [E] · 2919 grading never delivered — **still open** · 2560/2517/2064/2318/2266/2088 solved clean · **SquirrelResearch (07-13)** first spec-implementation rep: 12 bugs across B/C/E/F/G/L, zero algorithmic errors, both "fragile" design choices verified correct. Lesson for both parties: **expand all collapsed examples before writing anything — examples are spec.**
 
-- **LC 1793** (05-18) — dropped must-contain-k constraint [F].
-- **LC 1631** (05-18) — grid mutated across feasibility calls [K]; visited-vs-backtrack heuristic installed.
-- **LC 1092** (05-18) — lexicographic vs length comparison in dp table [B].
-- **LC 115** (05-19) — base case dp[0][j]=1 [C]; binomial-growth overflow, fixed by tightening loop bounds (pushed back correctly on clamping) [G].
-- **LC 312** (05-19) — missing boundary multiplication in last-balloon coins [F].
-- **LC 813** (06-04) — interval-DP + prefix-sum debugging session; base-case/loop-bound framework installed (domains → base from recurrence bottom-out → bounds follow).
-- **LC 1335** (06-10) — dp[i][0]=0 for all i [C]; loop bound off-by-one [D].
-- **LC 1626** (06-15) — dp[j]+dp[i] self-compounding transition [A].
-- **LC 1499 / 1937 / 630** (06-16) — paradigm session: recurrence derivation, algebraic separation, greedy hypothesis stress-testing; no execution bugs logged.
-- **LC 3956** (06-17) — wrong loop var m-1/k-1 [A]; prefix direction [B]; missing +prefix[i] [F]; deque entry i-1 vs i-l [D]; INT_MIN sentinel [G]; double::min() [G].
-- **LC 813** (06-17, revisit) — double::min() repeated independently [G]; prefix direction again [B].
-- **LC 3928** (06-17) — identification: layered-graph single Dijkstra, not "Dijkstra twice" [§2.2]. Dijkstra habits installed: lazy deletion, long long.
-- **LC 2267** (06-18) — memoization added cleanly; tri-state memo encoding + open>remaining pruning installed; `inline static` / memset-across-testcases discipline (feeds [K]).
-- **Min-cost-path w/ reversals** (06-20) — inverted PQ comparator → max-heap TLE [E]. (Correctly rebutted the stale-skip misdiagnosis — the dist-check already covered it.)
-- **Mirror-path count** (06-20) — MOD overflow in int [G]; start-cell-mirror and destination-mirror base cases [C ×2]. (Correctly argued direction belongs in pull-DP state.)
-- **LC 3815** (06-20) — DS selection Q&A (map vs unordered_map for ordered max) — no bugs.
-- **LC 2008** (06-21) — dp[j] vs dp[j+1] index translation [D]; `auto ride =` copies a vector per iteration (perf hygiene).
-- **minCost-string** (06-23) — string by value down recursion (unused) + vector<unordered_map> footprint → MLE; memo on disjoint subranges (written, never read) [I ×3, G-adjacent].
-- **LC 895** (06-23) — O(n) scan in push; one-entry-per-push paradigm [I, §2.2].
-- **LC 927** (06-23) — insight right, 3-pointer lockstep implementation stalled [§2.2].
-- **LC 1340** (06-23) — min-for-max left boundary [A]; spurious leftMax/rightMax blocking logic [I-adjacent].
-- **LC 828** (06-23) — dp-values instead of position gaps [B]; needed two prev positions per char [§2.2].
-- **LC 802** (06-23) — redundant unordered_set beside 3-color array [I].
-- **LC 3395** (06-23) — worked; no graded bugs logged.
-- **LC 1334** (06-24) — missing stale skip [F]; `<` vs `<=` relaxation [E]; unordered_map adjacency [I-minor].
-- **Teleport-grid Dijkstra** (06-24) — final loop [k] vs [i] [A]; uncounted O(m²n²k) fan-out → restructure via virtual nodes [I, §2.2].
-- **LC 2517** (06-25) — `int l = mid` shadowing [H]; right-bound mid formula locked.
-- **LC 1494** (06-25) — bitmask state semantics stall [§2.2].
-- **LC 992** (06-25) — `if (have == k)` counting guard (count all valid windows) [B-adjacent]; freq sizing n+1 + `.clear()` misuse [C, D]; exactly-K transform installed [§2.2].
-- **Paradigm marathon** (06-26: 2606, 828-deep, 2281, 2616, 2640, div-deletions, 2818) — contribution-counting engine + strict/non-strict installed; boundary-indexing resistance surfaced repeatedly [D]; unordered_map default-insert corrupting min [C]; NL→state conversion gap named [§2.2]; 2818 two-stage factorization stall [§2.2].
-- **LC 862** (06-28) — prefix vs prefixSum [A]; i=0 reading [-1] [C]; k−prefix[i] inversion, survived a review pass [B]; length i−j not i−idx+1 [D]; deque pop direction [E]; upper_bound semantics uncertainty [J].
-- **LC 2444** (06-29) — counting formula wrong anchor+extreme [B]; unnecessary resets + minK==maxK special case [I].
-- **LC 2555** (06-29) — hashmap+BS where sliding window on sorted positions [§2.2].
-- **LC 2439** (06-29) — local pairwise greedy → BSoA on counterexample [§2.2].
-- **LC 2551 / 1899** (06-29) — solved fast, prior exposure (freshness unverified).
-- **LC 1751** (07-01) — lower_bound comparator argument order [J].
-- **LC 871** (07-01) — knapsack connection self-identified; lazy-greedy (heap regret) + 2D→1D reverse-iteration collapse installed.
-- **LC 673 / 813 / 494 / 1043** (07-01) — DP state-dimension drill; 813-vs-1043 k-semantics conflation [§2.2]. (Also correctly caught the "index vs accumulate" heuristic's knapsack counterexample.)
-- **LC 2402** (07-03) — heap comparator missing room-number tie-break for equal end times [E].
-- **LC 2334** (07-03) — span i−st[j]+1 vs previous-entry boundary [B/D]; full-stack rescan O(n²) [I]; float threshold precision → integer cross-multiply [G]; read st.back() before popping curr [E].
-- **LC 3977** (07-03) — Minimum Time to Reach Target With Limited Power (state-augmented Dijkstra). Uninitialized `distances[source][power]=0` [C]; `>=` staleness skip evicting the live equal-time entry (must be strict `>` or `!=`) [E]; initially under-dimensioned state (single dist/node) before recognizing power must be a `(node,power)` dimension [§2.2, state-sizing]. Process note: approach was sound throughout — needed two 1-line patches, not the `settled[]`/Pareto refactor that was explored. See §2.3 Dijkstra checklist additions.
-- **LC 2528** (07-03) — Maximize the Minimum Powered City. BSoA correctly self-identified (monotonic feasibility). **Technique learned:** difference array for O(1) range-update during the greedy `feasible(x)` sweep — was the missing piece (didn't know it). Greedy placement = push forced stations as far right as still covers the deficient city, covering `[i, i+2r]`; consume at `leftBound`, cancel at `i+r+1` (window-relative matched pair). **Bugs (Ethan's):** initial consume-index alignment wrong before correcting to `leftBound` [E, draw-the-array countermeasure]; `vector<int> adjustments` truncating long long deltas [G]; `int minimumPower` param truncating long long `mid` at the call boundary [G — narrowing-across-function-boundary]. Type bugs fail on large inputs (k≤1e9, power≤1e10). Countermeasures → §2.3 type-width pass + draw-the-array pass.
-- **LC 1655** (07-03, PAUSED — resume tomorrow) — Distribute Repeating Integers. ⚠️ bitmask-DP-over-target-set, Ethan's self-identified weak area. Correctly ruled out greedy (non-local constraint). Reached the state-design question (mask = customers, iterate piles) with a nudge — same stall as LC 1723. Not yet coded: the `dp[mask|sub]` transition, submask enumeration loop, and `need[submask]` precompute. Full paradigm writeup in §2.3 "Bitmask DP over a small target set." **Resume plan: drill set 1655 → 698 (Partition to K Equal Sum Subsets) → 2305 (Fair Distribution of Cookies) — same submask move ×3 until it's automatic. Write the transition + submask loop cold each time.** Recurrence in plain English (from 07-03 session): dp[j][mask] = "using first j piles, can group `mask` be fully served?" = idle (dp[j-1][mask]) OR exists sub⊆mask with need[sub]≤count AND dp[j-1][mask^sub]. `sub` = chunk this pile serves; `mask^sub` = chunk earlier piles served. Cost 3^m via `for(sub=mask;sub;sub=(sub-1)&mask)`.
+**July 19–26 (C++ / systems block):**
+- **07-19** — `priority_queue` with a capturing-lambda comparator not passed to the ctor.
+- **07-25** — Squarepoint R1 mock: dangling-pointer vs leak definition; `fork()` return values; threading MCQ (last-caller-wins vs unpredictable/UB). Broken-Vector debug round: missed all three copy-assign defects and the growth-from-zero bug. Own code: `auto` narrowing before `r*r` [G]; `size()-2` unsigned wrap [G].
+- **07-26** — own vector: growth-from-zero **recurrence**, `pop_back` destroy order [E], `at()` `>` vs `>=` [E], `&vector operator=` syntax, const copy-and-swap parameter, `deallocate(nullptr,0)`, four design-level misconceptions (`move_if_noexcept` in a copy path, missing `noexcept` on moves, shrinking `reserve`, no exception guarantee). Concurrency quiz: 6 misses (thread-exception → terminate; `hardware_concurrency` caveats; "contended" cost model; guard codegen; tag positions; `unique_lock` movability) + 2 partials (thread arg decay-copy, `jthread` stop_token). Memory-order fill-in **13/14**, sole miss = over-strengthening. Memory-model quiz: 4 misses (stack locals and races; atomics-never-data-race; mutex needs BOTH sides; abstract machine vs x86). SPSC queue: `=` for `==` [M], atomic snapshot hygiene, over-strong ordering on its own index. ✅ Sharp catch: `scoped_lock<mutex>(m);` is a shadowing declaration.
 
-- **LC 2136 / 1642 / 2454** (07-06) — assigned, reported previously solved (2136/2454 not in log; no session data — freshness unverified).
-- **LC 630** (07-06, **revisit** — first seen 06-16 paradigm session) — Course Schedule III. Identification stall ("don't know if there's a greedy") despite prior exposure AND 871's regret-greedy self-identification on 07-01 → retention/transfer failure, logged §2.2. Exchange argument for deadline-sort reached with prompting; correctness proof twice anchored on the wrong invariant quantity (**time instead of count** — the {3,3}+dur-5 counterexample kills the time framing). Full race-argument proof walked. Solved + submitted on LC after walkthrough. Interview sentence locked: slack↔count converts at ≤1-for-1.
-- **LC 1937** (07-06, revisit) — solved independently on LC, no bugs reported.
-- **LC 2407** (07-06) — LIS with adjacent difference ≤ k. Identification GOOD: correctly diagnosed why the tails-array O(n log n) trick dies (min-tail-per-length no longer dominant — extension window [v−k, v−1] over VALUES means a larger admissible tail can exist while the min is below the window) and reached value-indexed dp + range-max-query reformulation. Implementation (segment tree over value domain, point update / range max) **KIV'd — needs a return date**; feeds §2.WEAK #3.
-- **LC 1986** (07-06) — assigned, unattempted (excluded by request — bitmask; overlaps the 1655→698→2305 drill).
-- **LC 421 / 1707** (07-06) — assigned, unattempted (excluded by request — trie family; 1707 = 421 + offline sorted queries). Feeds §2.WEAK #4.
-- **LC 1866** (07-06) — Number of Sticks with K Visible. Permutation-counting DP — new subfamily, walked (see §2.2 row + §2.3 block). Strong probing on WHY counts suffice (rank-bijection) and on state derivation — the questions were right, the toolkit was missing. Drill set queued: 629 → 920 → 1359.
-- **LC 1838** (07-06) — Frequency of the Most Frequent Element. Solved independently on LC in 15 min (on-target for tier), no bugs reported.
-- **LC 1478** (07-06) — Allocate Mailboxes (partition DP + median cost). Identification: framed the choice as continuous mailbox position instead of split point; sort→contiguous-blocks exchange-argument reduction needed a nudge [§2.2]. **Bug:** over-broad base-case loop set dp[1][0]=0, infeasible state marked feasible [C]. Sensed the framing was off and asked rather than forcing it — good instinct, log as positive. Complexity note: left O(n) median-cost inline in the transition → O(n³k); should precompute cost(l,r) (O(n²) via extension trick `cost(l,r)=cost(l,r−1)+houses[r]−houses[(l+r)/2]`) for O(n²k) DP. AC'd.
-- **LC 2218** (07-06) — Maximum Value of K Coins (grouped knapsack, top-of-pile prefix sums). Category self-identified, intended algorithm reached independently. **Bug:** inner dp dimension allocated `k` not `k+1` → ASan heap-buffer-overflow [C, allocation flavor]. Debugging win: self-directed via ASan report + index enumeration after flow prompt; `.at()` substitution added to toolkit. **Complexity lesson locked:** tight bound is O(k·T) where T = total coins, NOT O(n·k·max-pile) — inner loop amortizes over the *summed* constraint (Σ|pileᵢ|), a named pattern: "constraint bounds a sum, not a max → honest bound is over the sum" (same move as m·n≤1e5 problems, tree-DP knapsack merges). 7th-percentile runtime = constants not paradigm: 2D→1D rolling array (grouped knapsack, iterate j downward) + drop hot-loop assert; queued as a 5-min rep. AC'd.
+**July 27–29 (LeetCode block, 1780–1900 band):**
+- **findMinimumShifts** (past-OA recall, cyclic row shifts) — 5 bugs: copy-paste into the wrong sweep array [F], `LONG_MAX` init on a sum [C], unhandled pre-first/post-last cells from a −1 sentinel [E], rows/cols naming inverted vs the statement [A], two full matrices ~80 MB where per-row folding suffices [I].
+- **2401** — could not solve (pairwise-AND-zero subarray); flagged for review, no attempt details.
+- **1911** solved easily · **2444** (~2090) and **1856** (~2051) solved · **421** skipped (trie deferred).
+- **1834** (~1798) — right structure (sort + min-heap), two bugs: sorted in place destroying output indices [F]; `min(nextIdle, arrival)` dragging the clock backwards [B]. Asked for the finished solution rather than completing it.
+- **918** (~1777) — correct first try (max/min Kadane + total−min, all-negative guard). Notes: `0LL` accumulate assigned into `int` [G]; two DP arrays where scalars suffice [I]; signed/unsigned.
+- **2134** (~1748) — correct (duplicate array + fixed-width window counting zeros). Doubling unnecessary — `r % n` gives O(1) space [I].
+- **787** (~1789) — correct `[node][stops]` augmentation + lazy stale skip. Inverted-but-inert PQ tie-break [E], shadowed parameter [H], signed/unsigned.
+- **1888** (~1885) — had the rotation-as-doubling insight and the window scaffold, stalled on parity handling and asked for the full solution. Key points: anchor mismatches to a FIXED absolute-index pattern; `min(mismatch, n−mismatch)` covers both targets free; odd-n guard `n%2==0 || l%2==0`; O(1)-space version needs no doubling.
+- **1631** (~1948) — solved via BSoA + BFS. "Why so slow" answered: per-iteration visited reallocation, `vector<bool>`, target check at pop [I]. Taught minimax Dijkstra and Kruskal alternatives [§2.2].
+- **1838** (07-29, ~1876) — solved, "sliding pattern standard", no issues.
+- **1642** (07-29, ~1844) — solved; **regret greedy self-identified**.
+- **1871** (07-29, ~1896) — solved O(n log n) with a sorted reachable-index vector + `lower_bound`; asked afterwards about the O(n) prefix-sum form. Notes: computed `int sz = s.size()` then wrote `i < s.size()` anyway [G]; dead commented-out `cout`.
+- **2381** (07-29, ~1793) — correctly judged O(n·m) too slow; proposed sorted-by-start lists + binary search (corrected to decoupled starts/ends). **Difference array not retrieved** despite being catalogued twice → §2.2 + §2.WEAK #2. Implementation bugs: no alphabet wraparound at all, and negative modulo [G]. Two separate diff arrays where one signed array suffices; `sz+1` sizing would drop the bounds guard; second dead debug print in two problems.
+- **995** (07-29, ~1835) — **correct on the first draft**, greedy + difference array both self-identified before coding. Notes: the `-1` impossibility check runs after the bookkeeping instead of before; kept the `if (i+k < sz)` guard instead of `sz+1` sizing; tracked a full flip count where only parity matters; two-clause condition reducible to `nums[i] ^ parity`. O(1)-space variants taught (sentinel in `nums`, or a deque of flip positions).
+- **Session note (07-29):** difference array appeared twice in one session and was absent the first time, present the second — the retrieval fix worked within the session. Signed/unsigned discipline clean on the last two problems for the first time in weeks.
 
-- **LC 1642** (07-07) — assigned, reported previously solved (no session data — freshness unverified).
-- **LC 2542** (07-07) — assigned; no verdict reported (status unknown).
-- **LC 2439** (07-07, **revisit** — identification logged 06-29) — solved. Identification held (BSoA + right-to-left backlog feasibility — a valid equivalent of the prefix bound). **Bug:** `accumulate(..., 0)` int accumulator overflow [G]. Also `valid` took the vector **by copy**, unused mutation — O(n) copy per feasibility call [I-minor]. O(n) closed form noted for follow-ups: answer = max over i of ceil(prefix[i]/(i+1)).
-- **LC 1976** (07-07) — Number of Ways to Arrive at Destination. 40 min total. Bugs: `vector<int>` distances + int addition overflow [G]; `>=` on the pop-time staleness check — retention miss of 3977 [E]. Identification: augmented-Dijkstra counting was a genuinely new structural pattern (initially conceived as one-pop-per-path); the "seen/finalization" role of the staleness check took the bulk of the time [§2.2]. Post-solve grading initially undercounted the conceptual gap — corrected on Ethan's pushback.
-- **LC 1786** (07-07) — assigned as same-day consolidation of the 1976 pattern; reported done, no bugs reported.
-- **LC 2831** (07-07) — Find the Longest Equal Subarray. Identified sliding window solo; stalled on the deletions-per-window quantity → occurrence-space reframe walked [§2.2]. Ethan then independently surfaced the stale-max alternative (winLen − maxFreq ≤ k) — retrieval had been keyed on "replacement" not the formula. Both solutions now known; staleness-safety argument walked.
-- **LC 1888** (07-07) — Minimum Flips to Make Alternating (KIV → walked in full). DP attempt bugs: free rotation never modeled [F]; loop never read s[i]; degenerate second state dimension. Full reduction walked after frustration-abandon (commute → s+s window → absolute-index anchoring, code provided). **Implementation by Ethan unconfirmed — counts as walked, not cleared. Return date needed.**
-- **LC 2919** (07-07) — Minimum Increment Operations. Attempt submitted in-chat (dp[i][0/1] make-self-beautiful vs settled-by-others, i−3 lookback); **grading pending** — verdict never delivered (delivery failure), Ethan moved on. Preliminary: close, state design has a hole. **Grade at next session start.**
-- **LC 2547** (07-07) — Minimum Cost to Split an Array. Partition DP identified instantly (drilled paradigm); incremental uniques bookkeeping clean. **Bug:** split-loop direction vs segment-growth direction mismatch — freq map held the wrong element set at every evaluation [E]. Solved after one clue.
-- **LC 2560 / 2517 / 2064** (07-07) — BSoA block, all reported solved clean, identification-first on 2064 (binary search + greedy, self-identified). **2517 is a revisit** (06-25 shadowing bug) — clean this time; countermeasure held. Self-reported no-bugs: silent-clean vs actually-clean unverified.
-- **LC 2318** (07-07) — Number of Distinct Roll Sequences (2090). Solved, no bugs reported. The one problem of the evening block at band-edge.
-- **LC 2266 / 2088** (07-07) — solved, reported easy (1857 / 2105). 2088's height-recurrence insight landed without help — strong signal on grid counting DP.
-- **LC 2731** (07-07) — Movement of Robots. Asked the right question ("why don't collisions matter") → pass-through/relabeling reframe explained + contribution-sum step and the G/B landmines flagged. **Solve unconfirmed** — session pivoted to the recognition catalog.
-- **Session note (07-07):** heavy volume (~13 problems) but concentrated in strong paradigms (BSoA ×4, partition DP, counting DP); band-edge/recognition-gated work was 2318, 1888, 2731, 1976. **recognition-catalog.md added to repo** — full trigger-heuristic reference (reframes A1–A15, greedy B1–B7, DP C1–C10, DS D1–D7, counting E1–E5, deprioritized F, 60-sec pre-solve scan). Study between sessions; blind drills remain the test.
+**Open / unresolved:** 2919 grading never delivered · 2401 unsolved · 1888 implementation unconfirmed · 2407 segment-tree implementation KIV · 1655 → 698 → 2305 bitmask drill not started · 421 → 1707 trie pair deferred · 629 → 920 → 1359 permutation drill queued · 2839, 327 waiting on Fenwick/segment trees.
 
-- **SquirrelResearch / "Squirrels love nuts"** (07-13) — **first spec-implementation (OA-simulation) problem**, Optiver Kickstarter prep, untimed with iterative review (conditions ≠ OA: no compiler, no test runner — debugged blind from prose; do not calibrate time estimates off this session). Converged to correct solution. Bugs: expiry duration-vs-absolute [B]; unguarded `map::operator[]` default-construct [C]; expiry branch inversion, weight-bound strictness, occupied-level scan direction [E×3]; settling rule absent, empty-cache stop dropped, missing return ×2 [F×4]; integer-division threshold, bool-cast threshold [G×2]; capacity by-value infinite loop [L]. Compile-noise cluster: member-suffix inconsistency ×2 revisions, use-before-definition, `map::operator[]` needs default ctor (fix: `try_emplace(k, args...)` — parens, not braces), `*it` vs `it->second` [A-adjacent; the installed 60-sec identifier pass was not run]. **Positives:** self-caught + annotated 2 bugs pre-review; both "fragile" design choices (L0-emptiness proxy, invariant-based fullness check) were verified CORRECT — the gap is boundary mechanics, not reasoning; zero algorithmic errors. **Claude error, logged for symmetry:** wrongly voided Ethan's weight-range and duplicate-id validation as "invented constraints" three times running — both were spec-backed via COLLAPSED examples (source paste truncated Examples 2–4 to headers); also Claude's own reference solution omitted both validations and would have failed the same hidden tests. Lesson (both parties): **expand all collapsed examples before writing anything — examples are spec.** Optiver house style distributes rules between prose and examples. Next rep: fully solo, 90-min clock, runnable test harness, protocol enforced.
+## 2.5 Pre-Submit Checklist (~90 seconds, every problem)
 
-**Custom-implementation cluster (vector / shared_ptr from scratch, May–June):**
-`Element` vs `T`, `forward<Element>` [A]; `size_`/`capacity_` uninitialized [C]; `needExpand` / `capacity_-1` unsigned underflow at capacity 0 [D/G — multi-session, systematic]; missing const `operator[]`; missing deallocation in `reserve`/destructor; no downsize guard in `reserve` → overflow; `deallocate(nullptr,…)` from ctor path; dead try-catch around noexcept dtor; shared_ptr: control block deleted while holding its own mutex (UB); refcount race between pointer copy and increment → `atomic<size_t>`.
-
-## 2.5 Pre-Submit Checklist (run every problem — ~90 seconds)
-
-1. **Identifiers only** (A/H): read every variable name against intent; any `type name =` inside a loop body is a shadowing suspect.
-2. **Formula trace** (B): any counting/contribution/transition formula → hand-trace one 4-element example. Non-negotiable; this class is silent.
-3. **Comparators** (E): heap direction (`<` in a pq comparator = MAX-heap); strict `<` for sort; tie-break needed when keys can collide?
-4. **Numerics** (G): widen before `*`; sentinel matches accumulator width; `lowest()` never `min()` for floats; integer cross-multiply over division/float.
-5. **Boundaries** (C/D): first iteration (reads at −1?), last (sentinel flush?), empty structure, dp base = only the truly-free state, n+1 sizing for boundary-indexed prefix arrays.
-6. **Conventions** (J): lower/upper_bound comparator order recited before written; no bare `m[key]` reads inside min/max folds.
-7. **State hygiene** (K): anything mutated that survives into the next call/iteration/test case?
-8. **Complexity sanity** (I): worst-case input named (sorted/increasing array for stacks, dense fan-out for graphs); every container/state var justified by a fact nothing else tracks.
-9. **Spec fidelity** (E/F — spec-implementation format): EXPAND ALL COLLAPSED EXAMPLES first — examples are spec. Extract every rule to a numbered list with boundary strictness (strict/inclusive, tie direction, units) before coding. Pre-submit: map each numbered rule to its implementing line and check direction against the sentence. Every rejection path cites a spec sentence or example; every example-demonstrated constraint is implemented. Every bool function: all control paths return.
-10. **Propagation** (L): any counter/accumulator mutated in a callee — is the parameter a reference?
+0. **Approach retrieval** (before coding, not after): for anything with ranges, say which of {prefix sum, difference array, Fenwick, lazy segtree} the update/read pattern implies. For anything cyclic, name which circular reframe applies.
+1. **Identifiers only** [A/H] — read every name against intent; any `type name =` inside a loop body is a shadowing suspect.
+2. **Formula trace** [B] — hand-trace one 4-element example for any counting/contribution/transition formula. Non-negotiable; this class is silent.
+3. **Comparators** [E] — heap direction (`<` in a PQ comparator = MAX-heap); strict `<` for sort; tie-break needed when keys collide? On pop equal = owner (strict `>`); on relax equal = skip (`>=`).
+4. **Numerics** [G] — widen before `*`; `auto` deduces the narrow type; sentinel matches accumulator width; `lowest()` not `min()`; integer cross-multiply over division; **every subtraction feeding a `%` gets the `+m` guard**.
+5. **Signedness** [G] — every loop over a container: hoist `int n = c.size()` or use `size_t`. Never `int i < c.size()`, never `c.size() - k` without a guard. *(The most frequent item in this ledger.)*
+6. **Boundaries** [C/D] — first iteration (reads at −1?), last (sentinel flush?), empty structure, dp base = only the truly-free state, `n+1` sizing for boundary-indexed and difference arrays.
+7. **Conventions** [J] — recite `lower_bound`/`upper_bound` argument order before writing; no bare `m[key]` reads inside min/max folds.
+8. **State hygiene** [K/L] — anything mutated that survives into the next call? Any out-param taken by value?
+9. **Complexity sanity** [I] — name the worst-case input; justify every container by a fact nothing else tracks.
+10. **Spec fidelity** [E/F — spec-implementation format] — EXPAND ALL COLLAPSED EXAMPLES FIRST; examples are spec. Numbered rule list with boundary strictness before coding; map each rule to its implementing line; every bool function returns on all paths.
+11. **Cleanup** — dead debug prints, unused variables, commented-out code. Ten seconds; it is a code-review signal in interviews. *(Two dead `cout`s in two problems on 07-29.)*
+12. **Build habit** — `-Wall -Wextra` is free and would have caught the `=`/`==` typo [M].
 
 ---
 
-*Last updated: 2026-07-13 · session: SquirrelResearch spec-implementation debut (Optiver Kickstarter prep) — 12 logged bugs across B/C/E/F/G/+new L; E at 10 (3 sessions rising), F format-amplified 5→9, G at 11; two documented-item recurrences (§1.1 #9 map::operator[] 3rd hit → reflex promotion; #1 signed/unsigned noted-accepted); checklist items 9–10 added (spec fidelity, propagation); format-sensitivity note added to §2.1; Claude-side error logged in per-problem entry (collapsed-examples misjudgment). Next: fully solo 90-min spec rep with runnable harness (PowerCellBank queued).*
+*Last updated: 2026-07-29 · condensed rebuild + five sessions merged (07-19 lambda-comparator; 07-25 Squarepoint R1 mock + broken-Vector debug; 07-26 own vector, concurrency quiz, memory-model quiz, SPSC queue; 07-27–29 LeetCode 1780–1900 band ×11 problems). New: category M; §2.WEAK #2 difference-array/prefix-sum **retrieval** gap and #6 cyclic-index handling; §1.1 renumbered with signed/unsigned at #1 and growth-from-zero at #2; negative-modulo idiom added; checklist items 0, 5, 11, 12 added. Counts now E 14, G 14, C 12, F 11, I 11, B 9.*
 
-*Previous: 2026-07-06 (session 2) · session: 1478 (partition-DP reduction via exchange argument [§2.2] + over-broad base case [C]), 2218 (k vs k+1 allocation [C] + amortized-over-sum complexity pattern locked + ASan/.at() debugging toolkit). Category C at 10, 2× today — allocation-vs-loop-bounds pair-check discipline added. New drill family: sort+exchange→partition DP (410, 813, 1959); queued rep: 2218 2D→1D grouped-knapsack rewrite. Earlier same day: 630 revisit, 2407 (segment tree KIV), 1866, 1937/1838 clean. Open/unattempted: 1986, 421, 1707, 2407-impl.*
+*Trend: identification and paradigm selection are improving (regret greedy and greedy+diff-array both self-identified on 07-29; state augmentation correct first try on 787 and 1631). The residue is mechanical — signed/unsigned, modulo sign, sizing conventions — plus retrieval of techniques already written down. Next: the O(n) rewrite of 1871, the 1655 → 698 → 2305 bitmask drill, and a Fenwick/segment-tree unlock.*
