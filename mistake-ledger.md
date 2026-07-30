@@ -42,7 +42,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 | 10 | ADL `swap` idiom | `using std::swap; swap(a,b);` — qualified call defeats custom swap | ⭐ high-freq HFT |
 | 11 | SSO defeats move | Short-string move costs the same as a copy | ⭐ high-freq HFT |
 | 12 | `string_view` lifetime + not null-terminated | View of a temporary dangles at the semicolon; `data()` has no `'\0'` | ⭐ high-freq HFT |
-| 13 | Strict weak ordering | `<=` comparator in `std::sort` is UB, not just wrong | ⭐ trap question |
+| 13 | Strict weak ordering | `<=` comparator in `std::sort` is UB, not just wrong; 07-30 hit in own code: `(a[0]==b[0] && a[1]==-1)` returns true both ways for two equal exit events (2406) | 🔁 ⭐ trap question, now also a live bug |
 
 ## 1.2 Future Study TODO (flagged, not yet drilled)
 
@@ -78,6 +78,8 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 - **vector reallocation total work** — geometric series **< 2N**, not ~3N → amortized O(1). Growth: libstdc++/libc++ 2×, MSVC 1.5×. Sub-2 factor lets the allocator **reuse freed blocks** (their sum can exceed the next request); at exactly 2× it never can.
 - **`emplace_back` real gotcha** — not exception safety. It forwards to **`explicit`** ctors: `vector<vector<int>> v; v.emplace_back(10);` silently builds a 10-element vector; `push_back(10)` won't compile.
 - **`emplace_back(new Derived())`** — no destructor runs at all; the danger is a **leak** if reallocation throws before a `unique_ptr` adopts the pointer.
+- **`emplace_back` + braced lists (07-30, live bug)** — a braced-init-list has no type and cannot deduce through `emplace_back`'s template parameter, so `emplace_back({a, b})` doesn't compile; `emplace_back(a, b)` forwards with **paren semantics**, and on `vector<vector<int>>` that selects the **(count, value)** ctor: `emplace_back(v[0], 1)` built `v[0]` copies of `1` — compiles clean, garbage data — where `push_back({v[0], 1})` binds the initializer_list ctor (EMC++ Item 7 in the wild). To emplace a list, type it explicitly: `emplace_back(std::initializer_list<int>{a, b})`; `emplace_back(vector<int>{...})` compiles but is just push_back of a temporary. Real fix: `pair`/struct element type — unambiguous ctor, no per-element heap allocation, default lexicographic sort keeps a `{pos, delta}` tie-break for free.
+- **`s[s.size()]` is legal and returns `'\0'`** (std::string, since C++11) — leaned on twice on 07-30 (window `l` walking to `r+1 == n` before the bounds check). Legal ≠ design: the bounds check goes **first** in the `&&` chain.
 - **`vector<bool>`** — bit-packed specialization; `operator[]` returns a **proxy**: `auto b = v[i]` deduces the proxy, `&v[i]` is illegal, no contiguous `.data()`. `sizeof` is still ~24B (object, not heap data).
 - **Container per-instance overhead** — empty `unordered_map` ~56B on GCC → `vector<unordered_map>(1e6)` ≈ 56 MB before storing anything. Rough sizes: vector ~24B, string ~32B, unordered_map ~56B, map node ~48B+.
 - **Erase-inside-loop** — `it = v.erase(it)` while keeping `++it` skips every element after an erasure. Increment only in the else-branch, or `std::erase(v, val)` (C++20).
@@ -125,6 +127,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 - **`mutable`** is only for modifying **by-value** captures; reference captures never need it.
 - **`[=]` captures `this`**, not members by value — `[=]{ return id_*2; }` is `this->id_` through a captured pointer → dangling under deferred execution. Fix `[*this]` (C++17) or `[id = id_]`. C++20 deprecated implicit this-capture via `[=]`.
 - ✅ `[&count]` returned from a factory dangles; by-value `[count]` works.
+- **Stateless-lambda default construction is C++20** (P0624, learned 07-30 from own 2402 code) — pre-C++20 **all** closure types have a deleted default ctor and deleted copy assignment (instances only from evaluating the lambda expression, or copying one), so `priority_queue<T, vector<T>, decltype(comp)> pq;` fails: pq's default ctor must default-construct the comparator member. Pre-C++20 fixes: `pq(comp)`, or the idiomatic **named functor struct** (always default-constructible). C++20 gives **captureless** lambdas a defaulted default ctor + copy assignment; **capturing lambdas remain non-default-constructible** — add one capture and `pq;` breaks again (this is the root cause of the 07-19 pq bug, now closed). Companion C++20 change: lambdas allowed in unevaluated contexts → `decltype([](...){...})` directly inside the template argument, no named variable.
 
 ## Theme: Concurrency & Memory Model
 
@@ -192,6 +195,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 - **`unordered_map` custom key** — needs both a `std::hash` specialization (or functor) **and** `operator==`; the hash/equality invariant is: equal keys must hash equal. Violating it silently loses lookups.
 - **`unique_ptr` deleter storage** — EBO (empty base optimization), not type erasure; that's why a stateless-deleter `unique_ptr` is pointer-sized while `shared_ptr` type-erases in the control block.
 - **`make_shared` vs `shared_ptr(new T)`** — one allocation instead of two, better locality; downside is that the object's storage cannot be freed until the last **weak_ptr** dies.
+- **`.contains()`** on associative/unordered containers is **C++20**; pre-C++20 spell it `find() != end()` or `count()`.
 - **`volatile`** — for memory-mapped I/O and signal handlers; it prevents *compiler* elision/reordering of accesses but provides **no** atomicity and **no** cross-thread ordering. Not a threading tool.
 
 ## Theme: Integer Semantics & Conversions
@@ -263,7 +267,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 **Deprioritized (know they exist, don't drill):** digit DP, convex-hull trick / Li Chao, suffix automata, most interval DP.
 
-**Strengths (calibration):** monotonic-stack contribution counting, Kadane, binary-search-on-answer, exchange-argument skeleton, Dijkstra habits, sliding window (1838 "standard"), circular-array reframes.
+**Strengths (calibration):** monotonic-stack contribution counting, Kadane, binary-search-on-answer, exchange-argument skeleton, Dijkstra habits, sliding window (1838 "standard"), circular-array reframes. **Sweep line installed 07-30** — was blank in quickfire rounds 1 and 3; taught and applied same session (2406 solved, counter-vs-heap split articulated on 2402). **Sliding-window legality litmus installed 07-30** (§2.3).
 
 ## 2.0 How to read this part
 
@@ -275,16 +279,16 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 
 | ID | Category | Count | Trend | Signature |
 |---|---|---|---|---|
-| A | Wrong identifier / variable mix-up | 7 | 🔁 steady | Right algorithm, wrong name plugged in |
+| A | Wrong identifier / variable mix-up | 8 | 🔁 steady | Right algorithm, wrong name plugged in |
 | B | Formula inversion / transcription | 9 | 🔴 highest-risk | Derivation right in comments, coded term flipped — **silent wrong answer** |
 | C | Base case / initialization | 12 | 🔺 | Only the one truly-free state may be 0; allocation sizing included |
 | D | Off-by-one / index-domain translation | 6 | 🔁 steady | 0-indexed input vs 1-indexed dp; boundary-vs-element indexing |
-| E | Ordering / direction of operations | 14 | 🔴 rising | Pop direction, comparator direction, read-before-pop, missing tie-break, guard asymmetry |
-| F | Missing operation / dropped constraint | 11 | 🔴 format-amplified | A term or requirement never makes it into code |
-| G | Numeric type / sentinel / overflow / precision | 14 | 🔴 **top-2 with E** | int*int, `auto` narrowing, unsigned wrap, sentinel width, float division, negative modulo |
+| E | Ordering / direction of operations | 16 | 🔴 rising | Pop direction, comparator direction, read-before-pop, missing tie-break, guard asymmetry |
+| F | Missing operation / dropped constraint | 12 | 🔴 format-amplified | A term or requirement never makes it into code |
+| G | Numeric type / sentinel / overflow / precision | 15 | 🔴 **top-2 with E** | int*int, `auto` narrowing, unsigned wrap, sentinel width, float division, negative modulo |
 | H | Variable shadowing | 2 | — | `int l = mid` inside a loop; structured binding shadowing a parameter |
 | I | Over-engineering / wrong complexity or memory class | 11 | 🔺 | Extra state, redundant containers, rescans, memo where none needed |
-| J | API convention misuse | 5 | 🔁 4+ sessions | `lower_bound`/`upper_bound` comparator argument order |
+| J | API convention misuse | 6 | 🔁 4+ sessions | `lower_bound`/`upper_bound` comparator argument order |
 | K | State hygiene across calls | 1 | — | Mutated shared state leaks into the next feasibility call |
 | L | Parameter/reference propagation | 1 | — | Out-param by value; callee mutates its own copy |
 | M | Typo class the compiler would have caught | 1 | new 07-26 | `if (a = b)` for `==`; `-Wall`/`-Wparentheses` not in the build habit |
@@ -292,7 +296,7 @@ Running record of mistakes, misconceptions, and weak areas from interview practi
 **Format-sensitivity note:** the distribution is format-dependent. In spec-implementation (OA-simulation) format, E/G transfer intact, B/C/D go dormant (no derived formulas or DP base cases), and **F explodes** (constraint-dense prose). The historical F count was suppressed by an algorithm-heavy diet, not by low propensity. Optiver-style OAs contain both formats — the checklist must cover both halves.
 
 ### A — Wrong identifier / variable mix-up
-LC 862 `prefix` vs `prefixSum` · LC 1340 min↔max on the left jump boundary · LC 3956 `m-1` where `k-1` was meant · LC 1626 transition `dp[j] + dp[i]` instead of `dp[j] + players[i].score` · teleport-grid Dijkstra read a loop-invariant `distances[...][k]` instead of `[i]` · custom vector `Element` vs `T`, `forward<Element>` vs `forward<Args>` · findMinimumShifts (07-2x) named rows `m` / cols `n`, inverted vs the statement.
+LC 862 `prefix` vs `prefixSum` · LC 1340 min↔max on the left jump boundary · LC 3956 `m-1` where `k-1` was meant · LC 1626 transition `dp[j] + dp[i]` instead of `dp[j] + players[i].score` · teleport-grid Dijkstra read a loop-invariant `distances[...][k]` instead of `[i]` · custom vector `Element` vs `T`, `forward<Element>` vs `forward<Args>` · findMinimumShifts (07-2x) named rows `m` / cols `n`, inverted vs the statement · **LC 1234** (07-30) compared loop **indices** to char literals throughout — `if (r == 'Q')` for `if (s[r] == 'Q')`, in both the expand and shrink paths; legal `int == char` comparison, compiler silent, counters essentially never updated.
 **Countermeasure:** dedicated 60-second post-coding pass on *identifiers only*, no logic.
 
 ### B — Formula inversion / transcription — HIGHEST RISK
@@ -327,10 +331,12 @@ LC 2008 0-based search result into a 1-indexed dp (idiom: `int pos = it - v.begi
 - **findMinimumShifts** (07-2x): the −1 sentinel from plain sweeps left the pre-first / post-last cells unhandled. Two valid completions: explicit wrap branches (`j+cols-last` / `cols-j+first`), or seed `prev = last-cols`, `next = first+cols` so `L <= j <= R` never wraps.
 - **LC 787** (07-2x): `priority_queue` tie-breaker `e1.stops < e2.stops` inverted for a `>`-comparator (it prioritizes MORE stops) — **inert**, because the `[node][stops]` table makes pop order non-load-bearing. The whole tie-break line is dead weight. Logged because the direction error is real even where the consequence isn't.
 - **Custom vector** (07-26): `pop_back` destroying `data_[size_]` before decrementing; `at()` using `>` instead of `>=`.
+- **LC 2406** (07-30): self-written sort comparator `a[0] < b[0] || (a[0]==b[0] && a[1]==-1)` — **not a strict weak ordering** (two equal exit events each compare less-than the other) → UB in `std::sort` (can segfault on libstdc++; usually "works," which is worse). Fix `a[1] < b[1]`; better, encode the tie-break in the data — `{pos, delta}` sorts `-1` first lexicographically with **no comparator at all**. Promoted into §1.1 #13.
+- **LC 1234** (07-30): shrink condition evaluated `seen[charToInt(s[l])] ...` **before** `l <= r` — the deref runs first, the bounds check second. `&&` short-circuit order is a correctness tool: guards are the FIRST operand. (Survived only via the `s[n]=='\0'` quirk — second solution in a row leaning on it.)
 **Pattern:** the invariant is designed correctly; the mechanical realization (which end, which direction, which order) flips. Same genus as B, applied to operations.
 
 ### F — Missing operation / dropped constraint
-LC 3956 transition missing `+ prefix[i]` · LC 312 missing the boundary multiplication for the last-popped balloon · LC 1793 dropped "must contain index k" · LC 1334 missing the stale-node skip · SquirrelResearch ×4 (settling rule entirely absent; "or the cache empties" stop clause never coded → `max_element` on an empty range; **missing `return` ×2** in bool functions, the second one a same-session recurrence) · LC 1888 the entire free-rotation operation never entered the model (degenerate dp dimensions were the tell) · **findMinimumShifts** (07-2x) copy-paste: the right-sweep wrote into `nearestFromLeft`, leaving `nearestFromRight` all −1 · **LC 1834** (07-2x) sorted `tasks` in place, destroying the original indices needed for the output.
+LC 3956 transition missing `+ prefix[i]` · LC 312 missing the boundary multiplication for the last-popped balloon · LC 1793 dropped "must contain index k" · LC 1334 missing the stale-node skip · SquirrelResearch ×4 (settling rule entirely absent; "or the cache empties" stop clause never coded → `max_element` on an empty range; **missing `return` ×2** in bool functions, the second one a same-session recurrence) · LC 1888 the entire free-rotation operation never entered the model (degenerate dp dimensions were the tell) · **findMinimumShifts** (07-2x) copy-paste: the right-sweep wrote into `nearestFromLeft`, leaving `nearestFromRight` all −1 · **LC 1834** (07-2x) sorted `tasks` in place, destroying the original indices needed for the output · **LC 1234** (07-30) shrink-loop copy-paste: decremented via `r` for W/E/R where `l` was meant — same genus as findMinimumShifts' wrong-sweep-array. Root cause is representation: four parallel per-char variables force 4× if-ladders (the copy-paste habitat); `cnt[128]`/`win[128]` indexed by the char deletes it.
 
 ### G — Numeric type / sentinel / overflow / precision
 - LC 3956 `INT_MIN` sentinel against a `long long` accumulation → needed `LLONG_MIN`.
@@ -345,6 +351,7 @@ LC 3956 transition missing `+ prefix[i]` · LC 312 missing the boundary multipli
 - **07-25:** `auto r = arr[i]-arr[i-1]` then `r*r` into a `long long` — `auto` deduces `int`, the multiply overflows first.
 - **07-25:** `i < d.size()-2` wraps for n ≤ 1.
 - **LC 918** (07-2x): `accumulate(..., 0LL)` result assigned into an `int` — the overflow guard defeated by the narrowing on the next token. Safe within constraints, but inconsistent.
+- **LC 1234** (07-30): hoisted `int n = s.size()` and then wrote `r < s.size()` anyway — the 1871 pattern verbatim; the fix was already on screen three lines up.
 - **LC 2381** (07-29): net alphabet shift can be negative → `shift % 26` is negative → `'a' + negative`. Guard `((x % 26) + 26) % 26`, then rotate in letter-space: `'a' + (s[i]-'a'+net) % 26`.
 **Rules:** sentinels match the accumulator width · `lowest()` not `min()` for floats · widen **before** multiplying, and never rely on the assignment to widen · prefer integer cross-multiplication over division/float · **a value must not narrow as it crosses a function boundary** · any subtraction feeding a `%` gets the `+m` guard. Discipline, not blanket-casting: glance at constraints, mark what can exceed 2.1e9, type *those* `long long` and justify aloud. Blanket `long long` reads as not understanding types — a smell in HFT interviews specifically.
 
@@ -359,6 +366,7 @@ LC 2444 redundant resets + a special case the general formula already covered ·
 ### J — API convention misuse
 `lower_bound`/`upper_bound` custom-comparator argument order — **the single most repeated convention bug** (LC 1751 + 3 other sessions): `lower_bound` calls `comp(element, value)`; `upper_bound` calls `comp(value, element)`. Mnemonic: **the thing tested for smallness comes first.** Compiles fine, silently wrong on struct-field searches.
 **Countermeasure:** recite the convention line before writing the comparator.
+**`emplace_back` constructor selection** (07-30) — args forward with paren semantics; on `vector<vector<int>>` the two-int call hits the `(count, value)` ctor, and braced lists can't pass through emplace at all. Full entry in Part 1, Containers & STL.
 
 ### K — State hygiene across calls
 LC 1631 mutated the grid inside the feasibility check, corrupting every later `check(mid)`. Heuristic: visited-array when arrival direction doesn't matter; backtrack/restore when the path itself matters. Memo arrays need explicit reset across test cases.
@@ -431,6 +439,10 @@ SPSC `pop()`: `if (headCurr = tailCurr)` for `==`. **`-Wall -Wextra` is free; bu
 
 **Permutation-counting DP.** Trigger: counting arrangements where the property is defined purely by **comparisons**. Relabel to ranks (bijection ⇒ identities drop from the state), build by inserting in rank order, count insertion positions by effect. 1866: `dp[i][j] = dp[i-1][j-1] + (i-1)*dp[i-1][j]`. Dies the moment magnitudes matter.
 
+**Sweep line — sorted change-points + replayed state (installed 07-30; previously a recognition blank).** Trigger: the answer depends only on where intervals start/stop → convert each to `(pos, ±1)` events, sort, replay left-to-right maintaining state. Relationship to own tools: difference array = sweep line over a dense small axis; sweep line = difference array over sorted sparse events (keep only the nonzero deltas). **The bugs live in the boundary/tie convention:** closed intervals where touching counts → exit at `e+1` (the encoding removes the tie entirely); touching allowed → exit at `e` and sort `-1` before `+1` at equal positions. **State ladder:** "how many active" → counter (`active += delta`, track max); "which active one" → heap/multiset over the active set (skyline: multiset for arbitrary erase, or max-heap with lazy deletion). **Meeting-rooms lazy variant:** sort starts only, min-heap of end times, at most ONE pop per interval → heap size is monotone and the final size IS the high-water mark (no explicit max tracking); switch to a while-pop and the size tracks *current* occupancy, so explicit max tracking returns. Two-heap split (free rooms by number + busy by `(end, room)`) when groups have identity — the expected interview form for 2402. Canonical: 2406, 253, 1094, 218 (skyline), 2402, 1854.
+
+**Sliding window — the legality invariant (installed 07-30).** A variable-size window is legal **iff** the validity predicate is *monotone under inclusion*: shortest-valid-window problems need validity preserved by **expansion** (76, 209, 1234 — if `[l,r]` is valid, every superset is); longest-valid-window problems need validity preserved by **shrinking** (1004, at-most-k-distinct). Monotonicity is what makes the optimal `l` non-decreasing in `r`; without it the greedy shrink silently skips answers — the code still returns *a* number, which is the dangerous part. Litmus before coding: "if this window is valid, is every bigger one valid? every smaller one?" Both no → **not a vanilla window problem**: canonical trap is 862 (shortest sum ≥ k with negatives — expansion can destroy validity → prefix sums + monotonic deque). Second requirement: window state needs reversible O(1)-ish `add(s[r])` AND `remove(s[l])` — counts and sums qualify; "max of window" does not from a scalar (removal loses the runner-up) → monotonic deque even though the predicate is monotone. Fixed-width windows are exempt from the whole test (nothing is decided about size — 2134). "Exactly K" is never monotone → `atMost(K) − atMost(K−1)`.
+
 **Smaller conventions.** `lower_bound` → `comp(element, value)`, `upper_bound` → `comp(value, element)` ("the thing tested for smallness comes first"); returns first ≥ / first >. Exactly-K on windows = `atMost(K) − atMost(K−1)`. 0-indexed input → 1-indexed dp: use `pos = it - v.begin()` directly with `dp[0]` as the empty-prefix base. Knapsack 2D→1D: iterate capacity **in reverse**. Grids in DP: flat `vector<int>` with manual indexing beats `vector<vector<int>>`. `static int directions[][]` inside a member function is a smell — drop `static` or use `constexpr`.
 
 **Process discipline — patch vs refactor.** When the state, comparator, and relaxation are right, diagnose whether the failures are 1-line bugs BEFORE rewriting the approach. 3977 was two 1-line patches from correct; a full refactor was explored unnecessarily. Tell: if the shape is sound and only edge cases fail, you have bugs, not the wrong algorithm.
@@ -467,7 +479,16 @@ Format: `LC # (date) — bugs [category] / notes`. Older entries compressed to t
 - **995** (07-29, ~1835) — **correct on the first draft**, greedy + difference array both self-identified before coding. Notes: the `-1` impossibility check runs after the bookkeeping instead of before; kept the `if (i+k < sz)` guard instead of `sz+1` sizing; tracked a full flip count where only parity matters; two-clause condition reducible to `nums[i] ^ parity`. O(1)-space variants taught (sentinel in `nums`, or a deque of flip positions).
 - **Session note (07-29):** difference array appeared twice in one session and was absent the first time, present the second — the retrieval fix worked within the session. Signed/unsigned discipline clean on the last two problems for the first time in weeks.
 
-**Open / unresolved:** 2919 grading never delivered · 2401 unsolved · 1888 implementation unconfirmed · 2407 segment-tree implementation KIV · 1655 → 698 → 2305 bitmask drill not started · 421 → 1707 trie pair deferred · 629 → 920 → 1359 permutation drill queued · 2839, 327 waiting on Fenwick/segment trees.
+**July 30 (LeetCode block, Squarepoint-weighted 5-set, 1750–1900):**
+- **2406** (~1713, sweep-line installer) — correct `e+1` convention derived from the touching rule, correct counter sweep. Comparator SWO violation [E → §1.1 #13]; refactor then introduced the `emplace_back(v[0],1)` (count,value)-ctor bug [J]; `reserve(n)` where `2n` events are pushed; dead `cout`.
+- **1234** (~1878) — v1: correct algorithm (outside-counts ≤ n/4, strict shrink guard, empty-window→0), two bugs: loop-index-vs-char-literal comparison `if (r == 'Q')` [A]; shrink-loop copy-paste `r` for `l` [F]; plus signed/unsigned [G]. v2 (LC-76 have/required template): correct incl. the have-never-decrements invariant (sound only because the strict guard keeps `seen ≥ excess`); short-circuit order bug — `s[l]` read before `l <= r` [E]; hoisted `n` then `r < s.size()` anyway [G]; charToInt switch = the 4× ladder reintroduced (dead `break`s after `return`, no `default` → silent collapse to 'Q'); `s[n]=='\0'` leaned on in both versions. Verdict logged: prefer the formulation whose correctness fits in one sentence (outside-counts) over coupled-invariant machinery.
+- **983** (~1786) — **clean first submission**: calendar-day DP, pass-ends-at-`i` recurrence, off-left-edge guards, exchange argument articulated solo, no signedness slip. Notes: `unordered_set` for ≤365 membership → bool array / index walk in latency-sensitive code; `.contains()` is C++20.
+- **2402** (~1861, revisit — the old tie-break-miss problem) — **invented a single-heap normalization variant**: re-push free rooms at `end = mtgStart` so free rooms tie on the primary key and the room-number secondary key selects lowest-free inside one heap; O(m·n·log n), fine at constraints. **Session-best execution:** load-bearing `long long` **pre-empted** (first proactive G catch where it mattered — end times reach ~5e10); SWO-correct comparator the same session as the 2406 lesson; structured binding taken **by copy** before `pop()` (dangling-top trap avoided); half-open semantics via strict `<`. Residuals: dead `cout` (third of the session), `end` shadows `std::end`, and the two-heap split is the expected interview answer to "avoid re-pushing free rooms."
+- **1937** offered, already solved — swapped out. **1498** (~1868) assigned, **open** (mod-1e9+7 counting; G-category bait flagged at assignment).
+- **C++ trivia surfaced from own code:** `decltype(comp)` default construction is C++20-gated — full entry in the Lambdas theme; closes the 07-19 root cause.
+- **Session pattern:** same-session lesson application confirmed twice (SWO 2406→2402; overflow pre-empted on 2402). Three dead debug prints in one session → checklist #11 escalated.
+
+**Open / unresolved:** 2919 grading never delivered · 2401 unsolved · 1888 implementation unconfirmed · 2407 segment-tree implementation KIV · 1655 → 698 → 2305 bitmask drill not started · 421 → 1707 trie pair deferred · 629 → 920 → 1359 permutation drill queued · 2839, 327 waiting on Fenwick/segment trees · 1498 assigned 07-30, awaiting submission.
 
 ## 2.5 Pre-Submit Checklist (~90 seconds, every problem)
 
@@ -482,11 +503,11 @@ Format: `LC # (date) — bugs [category] / notes`. Older entries compressed to t
 8. **State hygiene** [K/L] — anything mutated that survives into the next call? Any out-param taken by value?
 9. **Complexity sanity** [I] — name the worst-case input; justify every container by a fact nothing else tracks.
 10. **Spec fidelity** [E/F — spec-implementation format] — EXPAND ALL COLLAPSED EXAMPLES FIRST; examples are spec. Numbered rule list with boundary strictness before coding; map each rule to its implementing line; every bool function returns on all paths.
-11. **Cleanup** — dead debug prints, unused variables, commented-out code. Ten seconds; it is a code-review signal in interviews. *(Two dead `cout`s in two problems on 07-29.)*
+11. **Cleanup** — dead debug prints, unused variables, commented-out code. Ten seconds; it is a code-review signal in interviews. *(Two dead `cout`s on 07-29; THREE on 07-30, surviving a refactor — the most persistent hygiene item in the ledger. Delete before every submit, no exceptions: OA submissions are read by humans.)*
 12. **Build habit** — `-Wall -Wextra` is free and would have caught the `=`/`==` typo [M].
 
 ---
 
-*Last updated: 2026-07-29 · condensed rebuild + five sessions merged (07-19 lambda-comparator; 07-25 Squarepoint R1 mock + broken-Vector debug; 07-26 own vector, concurrency quiz, memory-model quiz, SPSC queue; 07-27–29 LeetCode 1780–1900 band ×11 problems). New: category M; §2.WEAK #2 difference-array/prefix-sum **retrieval** gap and #6 cyclic-index handling; §1.1 renumbered with signed/unsigned at #1 and growth-from-zero at #2; negative-modulo idiom added; checklist items 0, 5, 11, 12 added. Counts now E 14, G 14, C 12, F 11, I 11, B 9.*
+*Last updated: 2026-07-30 · July 30 session merged (Squarepoint-weighted 5-set: 2406, 1234 ×2 versions, 983 clean, 2402 revisit, 1498 open). New: **sweep line** and the **sliding-window legality litmus** installed in §2.3 (sweep line was blank in quickfire rounds 1 & 3, now taught + applied same session); §1.1 #13 strict-weak-ordering promoted to hit-in-own-code; Lambdas theme gains the C++20 stateless-lambda default-construction fact (closes the 07-19 root cause); Containers & STL gains `emplace_back` braced-list/(count,value) semantics and the `s[size()]` quirk; `.contains()` C++20 noted. Counts now E 16, G 15, C 12, F 12, I 11, B 9, A 8, J 6.*
 
 *Trend: identification and paradigm selection are improving (regret greedy and greedy+diff-array both self-identified on 07-29; state augmentation correct first try on 787 and 1631). The residue is mechanical — signed/unsigned, modulo sign, sizing conventions — plus retrieval of techniques already written down. Next: the O(n) rewrite of 1871, the 1655 → 698 → 2305 bitmask drill, and a Fenwick/segment-tree unlock.*
